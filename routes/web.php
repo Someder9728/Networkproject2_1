@@ -6,6 +6,9 @@ use App\Http\Controllers\RoomController;
 Route::view('/', 'welcome')->name('home');
 
 
+// flow = create room by ../room-test  to create room
+// to join in another tab ../room-test/{code from created room} 
+
 // enter name in form to create room
 Route::get('/room-test', function () {
     return view('room-test');
