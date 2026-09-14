@@ -21,14 +21,16 @@ class RoleAssignment
 {
     // ชื่อ role ที่ใช้ในระบบ (RoleAbility.php อ้างอิง constant เหล่านี้)
     public const WEREWOLF = 'werewolf';
-    public const SEER     = 'seer';
+
+    public const SEER = 'seer';
+
     public const VILLAGER = 'villager';
 
     /**
      * สุ่มแจก role ให้ผู้เล่นทั้งหมด
      *
-     * @param array<int, string> $playerIds     รายชื่อ/ไอดีผู้เล่นทั้งหมด เช่น ['P1','P2','P3',...]
-     * @param int                $werewolfCount จำนวน Werewolf ที่ต้องการ (ปกติมาจาก DifficultyConfig)
+     * @param  array<int, string>  $playerIds  รายชื่อ/ไอดีผู้เล่นทั้งหมด เช่น ['P1','P2','P3',...]
+     * @param  int  $werewolfCount  จำนวน Werewolf ที่ต้องการ (ปกติมาจาก DifficultyConfig)
      * @return array<string, string> rolesMap เช่น ['P1' => 'werewolf', 'P2' => 'seer', 'P3' => 'villager']
      *
      * @throws \InvalidArgumentException ถ้าจำนวนผู้เล่นไม่พอสำหรับกติกา (ต้องมี Werewolf + Seer อย่างน้อย)
@@ -38,11 +40,11 @@ class RoleAssignment
         $playerCount = count($playerIds);
 
         if ($playerCount < 1) {
-            throw new \InvalidArgumentException("ต้องมีผู้เล่นอย่างน้อย 1 คน");
+            throw new \InvalidArgumentException('ต้องมีผู้เล่นอย่างน้อย 1 คน');
         }
 
         if ($werewolfCount < 1) {
-            throw new \InvalidArgumentException("จำนวน Werewolf ต้องมีอย่างน้อย 1 คน");
+            throw new \InvalidArgumentException('จำนวน Werewolf ต้องมีอย่างน้อย 1 คน');
         }
 
         // ต้องเหลือที่ให้ Seer อย่างน้อย 1 คนเสมอตามสเปก
@@ -54,7 +56,7 @@ class RoleAssignment
 
         // กันเคสมี player id ซ้ำ ซึ่งจะทำให้แจก role ผิดพลาด
         if (count(array_unique($playerIds)) !== $playerCount) {
-            throw new \InvalidArgumentException("มี player id ซ้ำกันใน \$playerIds");
+            throw new \InvalidArgumentException('มี player id ซ้ำกันใน $playerIds');
         }
 
         $shuffled = $playerIds;
@@ -82,17 +84,17 @@ class RoleAssignment
      * แจก role โดยรับ DifficultyConfig object ตรงๆ (สะดวกใช้จากภายนอก)
      * รองรับกรณีที่ DifficultyConfig มี method getWerewolfCount(): int
      *
-     * @param array<int, string> $playerIds
-     * @param object             $difficultyConfig ต้องมี method getWerewolfCount(): int
+     * @param  array<int, string>  $playerIds
+     * @param  object  $difficultyConfig  ต้องมี method getWerewolfCount(): int
      * @return array<string, string>
      *
      * @throws \InvalidArgumentException ถ้า $difficultyConfig ไม่มี method getWerewolfCount()
      */
     public static function assignWithConfig(array $playerIds, object $difficultyConfig): array
     {
-        if (!method_exists($difficultyConfig, 'getWerewolfCount')) {
+        if (! method_exists($difficultyConfig, 'getWerewolfCount')) {
             throw new \InvalidArgumentException(
-                "DifficultyConfig ต้องมี method getWerewolfCount()"
+                'DifficultyConfig ต้องมี method getWerewolfCount()'
             );
         }
 

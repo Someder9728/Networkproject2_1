@@ -21,6 +21,7 @@ namespace App\GameLogic;
 class DifficultyConfig
 {
     public const EASY = 'easy';
+
     public const HARD = 'hard';
 
     /**
@@ -48,42 +49,42 @@ class DifficultyConfig
         return [
             4 => [
                 self::EASY => [
-                    'werewolf_count'       => 1, // สมมติฐาน: ไม่มีในสเปกต้นฉบับ ใช้ค่าต่ำสุดเพื่อความบาลานซ์
-                    'day_discussion_sec'   => 120,
-                    'day_voting_sec'       => 45,
-                    'seer_checks_limit'    => null,
-                    'seer_accuracy'        => true,
+                    'werewolf_count' => 1, // สมมติฐาน: ไม่มีในสเปกต้นฉบับ ใช้ค่าต่ำสุดเพื่อความบาลานซ์
+                    'day_discussion_sec' => 120,
+                    'day_voting_sec' => 45,
+                    'seer_checks_limit' => null,
+                    'seer_accuracy' => true,
                     'reveal_role_on_death' => true,
-                    'tie_breaking'         => 'no_death',
+                    'tie_breaking' => 'no_death',
                 ],
                 self::HARD => [
-                    'werewolf_count'       => 1, 
-                    'day_discussion_sec'   => 60,
-                    'day_voting_sec'       => 30,
-                    'seer_checks_limit'    => 3,
-                    'seer_accuracy'        => true,
+                    'werewolf_count' => 1,
+                    'day_discussion_sec' => 60,
+                    'day_voting_sec' => 30,
+                    'seer_checks_limit' => 3,
+                    'seer_accuracy' => true,
                     'reveal_role_on_death' => false,
-                    'tie_breaking'         => 'revote_or_random',
+                    'tie_breaking' => 'revote_or_random',
                 ],
             ],
             6 => [
                 self::EASY => [
-                    'werewolf_count'       => 1,
-                    'day_discussion_sec'   => 120,
-                    'day_voting_sec'       => 45,
-                    'seer_checks_limit'    => null,
-                    'seer_accuracy'        => true,
+                    'werewolf_count' => 1,
+                    'day_discussion_sec' => 120,
+                    'day_voting_sec' => 45,
+                    'seer_checks_limit' => null,
+                    'seer_accuracy' => true,
                     'reveal_role_on_death' => true,
-                    'tie_breaking'         => 'no_death',
+                    'tie_breaking' => 'no_death',
                 ],
                 self::HARD => [
-                    'werewolf_count'       => 2,
-                    'day_discussion_sec'   => 60,
-                    'day_voting_sec'       => 30,
-                    'seer_checks_limit'    => 3,
-                    'seer_accuracy'        => true,
+                    'werewolf_count' => 2,
+                    'day_discussion_sec' => 60,
+                    'day_voting_sec' => 30,
+                    'seer_checks_limit' => 3,
+                    'seer_accuracy' => true,
                     'reveal_role_on_death' => false,
-                    'tie_breaking'         => 'revote_or_random',
+                    'tie_breaking' => 'revote_or_random',
                 ],
             ],
         ];
@@ -99,14 +100,14 @@ class DifficultyConfig
         $difficulty = strtolower($difficulty);
         $table = self::table();
 
-        if (!isset($table[$playerCount])) {
+        if (! isset($table[$playerCount])) {
             throw new \InvalidArgumentException(
-                "ยังไม่รองรับจำนวนผู้เล่น {$playerCount} คน (รองรับแค่ " .
-                implode(', ', self::supportedPlayerCounts()) . ')'
+                "ยังไม่รองรับจำนวนผู้เล่น {$playerCount} คน (รองรับแค่ ".
+                implode(', ', self::supportedPlayerCounts()).')'
             );
         }
 
-        if (!in_array($difficulty, [self::EASY, self::HARD], true)) {
+        if (! in_array($difficulty, [self::EASY, self::HARD], true)) {
             throw new \InvalidArgumentException(
                 "ความยากไม่ถูกต้อง: {$difficulty} (ต้องเป็น 'easy' หรือ 'hard')"
             );
@@ -121,6 +122,7 @@ class DifficultyConfig
     public static function isSupported(int $playerCount, string $difficulty): bool
     {
         $difficulty = strtolower($difficulty);
+
         return isset(self::table()[$playerCount][$difficulty]);
     }
 }
