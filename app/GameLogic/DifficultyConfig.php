@@ -26,6 +26,8 @@ class DifficultyConfig
 
     /**
      * รายชื่อจำนวนผู้เล่นที่รองรับตอนนี้
+     *
+     * @return array<int, int>
      */
     public static function supportedPlayerCounts(): array
     {
@@ -43,6 +45,8 @@ class DifficultyConfig
      * reveal_role_on_death: true = ประกาศ role คนตายทันที / false = ไม่เปิดเผย
      * tie_breaking        : 'no_death' = เสมอแล้วไม่มีใครตาย
      *                       'revote_or_random' = เสมอแล้วโหวตรอบสอง หรือสุ่มจากคนที่เสมอ
+     *
+     * @return array<int, array<string, array<string, mixed>>>
      */
     protected static function table(): array
     {
@@ -92,6 +96,8 @@ class DifficultyConfig
 
     /**
      * ดึง config ตามจำนวนผู้เล่น + ความยาก
+     *
+     * @return array<string, mixed>
      *
      * @throws \InvalidArgumentException ถ้าจำนวนผู้เล่นหรือความยากไม่รองรับ
      */

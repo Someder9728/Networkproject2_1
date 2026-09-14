@@ -25,10 +25,10 @@ class RoleAssignment
     /**
      * สุ่มแจก role ให้ผู้เล่น
      *
-     * @param  array  $players  list ของผู้เล่น เช่น ['P1', 'P2', 'P3', 'P4', 'P5', 'P6']
-     *                          หรือจะเป็น id ก็ได้ (int/string) ไม่จำกัดรูปแบบ
+     * @param  array<int|string, mixed>  $players  list ของผู้เล่น เช่น ['P1', 'P2', 'P3', 'P4', 'P5', 'P6']
+     *                                             หรือจะเป็น id ก็ได้ (int/string) ไม่จำกัดรูปแบบ
      * @param  string  $difficulty  'easy' หรือ 'hard'
-     * @return array<string, string> map ผู้เล่น => role เช่น ['P1' => 'werewolf', 'P2' => 'seer', ...]
+     * @return array<int|string, string> map ผู้เล่น => role เช่น ['P1' => 'werewolf', 'P2' => 'seer', ...]
      *
      * @throws \InvalidArgumentException ถ้าจำนวนผู้เล่นไม่ตรงกับที่ DifficultyConfig รองรับ
      */
@@ -74,8 +74,8 @@ class RoleAssignment
      * Helper: จัดกลุ่มผู้เล่นตาม role ที่แจกไปแล้ว
      * เช่น เอาไว้ให้ Werewolf ด้วยกันเห็นว่าใครเป็นทีมเดียวกันบ้าง (ตามกฎ "การมองเห็นข้อมูล")
      *
-     * @param  array<string, string>  $assignedRoles  ผลลัพธ์จาก assign()
-     * @return array<string, array> เช่น ['werewolf' => [...], 'seer' => [...], 'villager' => [...]]
+     * @param  array<int|string, string>  $assignedRoles  ผลลัพธ์จาก assign()
+     * @return array<string, array<int, mixed>> เช่น ['werewolf' => [...], 'seer' => [...], 'villager' => [...]]
      */
     public static function groupByRole(array $assignedRoles): array
     {
