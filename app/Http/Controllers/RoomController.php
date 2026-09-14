@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+
+use Illuminate\Support\Str;
 use App\Services\RoomService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -16,7 +18,10 @@ class RoomController extends Controller
             'host_name' => ['required', 'string', 'max:50'],
         ]);
 
-        $room = $roomService->create($validated['host_name']);
+        $room = $roomService->create(
+        $validated['host_name'],
+        $this->getPlayerId($request)
+        );
 
         return redirect()->route('rooms.show', ['code' => $room['code'],]);
     }
@@ -28,8 +33,9 @@ class RoomController extends Controller
 
     $room = $roomService->join(
         $code,
-        $validated['player_name']
-    );
+        $validated['player_name'],
+        $this->getPlayerId($request)
+        );
 
     return redirect()->route('rooms.show', ['code' => $room['code'],]);
 
@@ -41,4 +47,35 @@ class RoomController extends Controller
 
         return view('rooms.lobby', ['room' => $room]);
     }
+
+    private function getPlayerId(Request $request): string
+    {
+        $playerId = $request->session()->get('player_id');
+
+        if (!$playerId) {
+            $playerId = (string) Str::uuid();
+            $request->session()->put('player_id', $playerId);
+        }
+
+        return $playerId;
+    }
+
+    public function leave(
+        Request $request,
+        RoomService $roomService,
+        string $code
+        ): \Illuminate\Http\RedirectResponse 
+        {
+            $playerId = $request->session()->get('player_id');
+
+            abort_unless(
+                is_string($playerId) && $playerId !== '',
+                403,
+                'ไม่พบตัวตนผู้เล่น'
+            );
+
+            $roomService->leave($code, $playerId);
+
+            return redirect('/room-test');
+}
 }

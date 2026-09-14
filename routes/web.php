@@ -32,6 +32,10 @@ Route::post('/rooms/{code}/join', [RoomController::class, 'join']);
 Route::get('/rooms/{code}', [RoomController::class, 'show'])->name('rooms.show');
 
 
+// to leave
+Route::post('/rooms/{code}/leave', [RoomController::class, 'leave'])
+    ->name('rooms.leave');
+
 
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::view('dashboard', 'dashboard')->name('dashboard');

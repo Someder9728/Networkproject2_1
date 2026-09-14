@@ -25,5 +25,17 @@
     <a href="{{ route('rooms.show', ['code' => $room['code']]) }}">
         Room refresh
     </a>
+
+    @if (collect($room['players'])->contains('id', session('player_id')))
+    <form method="POST" action="{{ route('rooms.leave', ['code' => $room['code']]) }}">
+        @csrf
+
+        <button type="submit">ออกจากห้อง</button>
+    </form>
+    @endif
+
+    @foreach ($errors->all() as $error)
+        <p>{{ $error }}</p>
+    @endforeach
 </body>
 </html>
