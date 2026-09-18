@@ -8,35 +8,37 @@ use Illuminate\Validation\ValidationException;
 
 class RoomService
 {
-    public function create(string $hostName, string $hostId): array
-    {
-        
-
-        $room = [
-            'code' => strtoupper(Str::random(6)),
-            'status' => 'lobby',
-            'host_id' => $hostId,
-            'players' => [
-                [
-                    'id' => $hostId,
-                    'name' => $hostName,
+    public function create(
+            string $hostName,
+            string $hostUuid,
+            string $difficulty
+        ): array {
+            $room = [
+                'code' => strtoupper(Str::random(6)),
+                'status' => 'waiting',
+                'difficulty' => $difficulty,
+                'host_uuid' => $hostUuid,
+                'players' => [
+                    [
+                        'player_uuid' => $hostUuid,
+                        'name' => $hostName,
+                    ],
                 ],
-            ],
-        ];
+            ];
 
-        Cache::store('file')->put(
-            'room:' . $room['code'],
-            $room,
-            now()->addHours(2)
-        );
+            Cache::store('file')->put(
+                'room:' . $room['code'],
+                $room,
+                now()->addHours(2)
+            );
 
-        return $room;
-    }
+            return $room;
+        }
 
     public function join(
         string $code,
         string $playerName,
-        string $playerId
+        string $playerUuid
         ): array {
     $code = strtoupper($code);
     $cache = Cache::store('file');
@@ -46,7 +48,7 @@ class RoomService
             $cache,
             $code,
             $playerName,
-            $playerId
+            $playerUuid
         ) {
             $key = 'room:' . $code;
             $room = $cache->get($key);
@@ -55,20 +57,20 @@ class RoomService
 
             // เป็นสมาชิกอยู่แล้ว: คืนห้องเดิม ไม่เพิ่มซ้ำ
             foreach ($room['players'] as $player) {
-                if ($player['id'] === $playerId) {
+                if ($player['player_uuid'] === $playerUuid) {
                     return $room;
                 }
             }
 
             // ผู้เล่นใหม่เข้าได้เฉพาะช่วง Lobby
-            if ($room['status'] !== 'lobby') {
+            if ($room['status'] !== 'waiting') {
                 throw ValidationException::withMessages([
                     'room' => 'ห้องนี้เริ่มเกมแล้ว',
                 ]);
             }
 
             $room['players'][] = [
-                'id' => $playerId,
+                'player_uuid' => $playerUuid,
                 'name' => $playerName,
             ];
 
@@ -90,24 +92,24 @@ class RoomService
     }
 
 
-    public function leave(string $code, string $playerId): void
+    public function leave(string $code, string $playerUuid): void
     {
         $code = strtoupper($code);
         $cache = Cache::store('file');
 
         $cache->lock('room-lock:' . $code, 5)
-            ->block(3, function () use ($cache, $code, $playerId) {
+            ->block(3, function () use ($cache, $code, $playerUuid) {
                 $key = 'room:' . $code;
                 $room = $cache->get($key);
 
                 abort_if($room === null, 404, 'ไม่พบห้อง');
 
                 $isMember = collect($room['players'])
-                    ->contains('id', $playerId);
+                    ->contains('player_uuid', $playerUuid);
 
                 abort_unless($isMember, 403, 'คุณไม่ได้อยู่ในห้องนี้');
 
-                if ($room['status'] !== 'lobby') {
+                if ($room['status'] !== 'waiting') {
                     throw ValidationException::withMessages([
                         'room' => 'ตอนนี้ออกได้เฉพาะช่วง Lobby',
                     ]);
@@ -116,7 +118,7 @@ class RoomService
                 // ลบสมาชิกและเรียง index ใหม่
                 $room['players'] = array_values(array_filter(
                     $room['players'],
-                    fn (array $player) => $player['id'] !== $playerId
+                    fn (array $player) => $player['player_uuid'] !== $playerUuid
                 ));
 
                 // คนสุดท้ายออก: ลบห้อง
@@ -126,8 +128,8 @@ class RoomService
                 }
 
                 // Host ออก: ส่งต่อให้สมาชิกคนแรกที่เหลือ
-                if ($room['host_id'] === $playerId) {
-                    $room['host_id'] = $room['players'][0]['id'];
+                if ($room['host_uuid'] === $playerUuid) {
+                    $room['host_uuid'] = $room['players'][0]['player_uuid'];
                 }
 
                 $cache->put($key, $room, now()->addHours(2));

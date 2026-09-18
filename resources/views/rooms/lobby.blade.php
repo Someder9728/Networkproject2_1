@@ -8,6 +8,16 @@
     <h1>Room {{ $room['code'] }}</h1>
 
     <p>Status: {{ $room['status'] }}</p>
+    <p>
+        ระดับ:
+        {{ $room['difficulty'] === 'easy' ? 'ง่าย' : 'ยาก' }}
+    </p>
+
+    <p>
+        {{ $room['difficulty'] === 'easy'
+            ? 'ง่ายจัด โหมดเดกอนุบาน'
+            : 'ยาก กัววววววๆๆๆๆ' }}
+    </p>
     <p>Total player: {{ count($room['players']) }} คน</p>
 
     <ul>
@@ -15,7 +25,7 @@
             <li>
                 {{ $player['name'] }}
 
-                @if ($player['id'] === $room['host_id'])
+                @if ($player['player_uuid'] === $room['host_uuid'])
                     — Host
                 @endif
             </li>
@@ -26,7 +36,7 @@
         Room refresh
     </a>
 
-    @if (collect($room['players'])->contains('id', session('player_id')))
+    @if (collect($room['players'])->contains('player_uuid', session('player_uuid')))
     <form method="POST" action="{{ route('rooms.leave', ['code' => $room['code']]) }}">
         @csrf
 
