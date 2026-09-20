@@ -27,7 +27,7 @@
 - rooms_room_id | INT | FK, NN
 
 3. votes_and_actions:
-- id | INT | PK, NN, AI
+- vote_id | INT | PK, NN, AI
 - rooms_room_id | INT | FK, NN
 - phase_number | INT | NN, Default 1
 - phase_type | ENUM('day_discussion', 'day_voting', 'night') | NN
@@ -83,7 +83,7 @@ CREATE TABLE IF NOT EXISTS players (
 
 -- 3. Table: votes_and_actions
 CREATE TABLE IF NOT EXISTS votes_and_actions (
-    id INT AUTO_INCREMENT PRIMARY KEY,
+    vote_id INT AUTO_INCREMENT PRIMARY KEY,
     rooms_room_id INT NOT NULL,
     phase_number INT NOT NULL DEFAULT 1,
     phase_type ENUM('day_discussion', 'day_voting', 'night') NOT NULL,
