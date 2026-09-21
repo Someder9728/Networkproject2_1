@@ -30,12 +30,48 @@ class GameConfiguration
             $eventChance
         );
 
+        $effectiveSettings = self::applyRandomEvent(
+            $settings,
+            $randomEvent
+        );
+
         return [
             'player_count' => $playerCount,
             'difficulty' => strtolower($difficulty),
             'settings' => $settings,
+            'effective_settings' => $effectiveSettings,
             'roles' => $roles,
             'random_event' => $randomEvent,
         ];
+    }
+
+    public static function applyRandomEvent(
+        array $settings,
+        array $randomEvent
+    ): array {
+        $effectiveSettings = $settings;
+
+        if (($randomEvent['id'] ?? 'none') === 'none') {
+            return $effectiveSettings;
+        }
+
+        $effect = $randomEvent['effect'] ?? [];
+
+        if (isset($effect['discussion_time_change'])) {
+            $effectiveSettings['day_discussion_sec'] +=
+                $effect['discussion_time_change'];
+        }
+
+        if (isset($effect['voting_time_change'])) {
+            $effectiveSettings['day_voting_sec'] +=
+                $effect['voting_time_change'];
+        }
+
+        if (isset($effect['tie_breaking'])) {
+            $effectiveSettings['tie_breaking'] =
+                $effect['tie_breaking'];
+        }
+
+        return $effectiveSettings;
     }
 }
