@@ -13,8 +13,8 @@ return new class extends Migration
     {
         Schema::create('rooms', function (Blueprint $table) {
             $table->id('room_id');
-            $table->char('room_code', 6);
-            $table->string('room_status')->nullable();
+            $table->char('room_code', 6)->unique(); // เพิ่ม unique
+            $table->enum('room_status', ['waiting', 'day_discussion', 'day_voting', 'night', 'ended'])->default('waiting'); // ตรงตาม ENUM ใน DATABASE.md
             $table->timestamp('room_phase_end_time')->nullable();
             $table->enum('difficulty', ['easy', 'hard'])->default('easy');
             $table->timestamps();

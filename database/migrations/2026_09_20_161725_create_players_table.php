@@ -15,12 +15,12 @@ return new class extends Migration
             $table->id('player_id');
             $table->string('player_name', 45);
             $table->boolean('is_host')->default(false);
-            $table->char('player_uuid', 36);
-            $table->string('role')->nullable();
+            $table->char('player_uuid', 36)->unique(); // เพิ่ม unique
+            $table->enum('role', ['villager', 'werewolf', 'seer'])->nullable(); // มี 3 บทบาทตาม DATABASE.md
             $table->boolean('is_alive')->default(true);
             $table->boolean('is_connected')->default(true);
             
-            // Foreign Key เชื่อมกับตาราง rooms
+            // Foreign Key
             $table->foreignId('rooms_room_id')->constrained('rooms', 'room_id')->onDelete('cascade');
             $table->timestamps();
         });

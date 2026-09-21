@@ -13,7 +13,7 @@ return new class extends Migration
     {
         Schema::create('chat_messages', function (Blueprint $table) {
             $table->id('chat_id');
-            $table->string('chat_channel')->nullable();
+            $table->enum('chat_channel', ['all', 'werewolf', 'dead'])->default('all');
             $table->text('message');
 
             // Foreign Keys
