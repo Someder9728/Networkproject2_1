@@ -2,6 +2,8 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\RoomController;
+use App\Http\Controllers\GameController;
+
 
 Route::view('/', 'welcome')->name('home');
 
@@ -10,12 +12,14 @@ Route::view('/', 'welcome')->name('home');
 // to join in another tab ../room-test/{code from created room} 
 
 // enter name in form to create room
-Route::get('/room-test', function () {
-    return view('room-test');
-});
+Route::get('/room-test', [RoomController::class, 'index'])
+    ->name('rooms.index');
+
+Route::post('/join-room', [RoomController::class, 'joinFromForm'])
+    ->name('rooms.join-form');
 
 // get name and create room by controller
-Route::post('/rooms', [RoomController::class, 'store']);
+Route::post('/rooms', [RoomController::class, 'store'])->name('rooms.store');
 
 
 //  enter name in form  
@@ -35,6 +39,15 @@ Route::get('/rooms/{code}', [RoomController::class, 'show'])->name('rooms.show')
 // to leave
 Route::post('/rooms/{code}/leave', [RoomController::class, 'leave'])
     ->name('rooms.leave');
+
+// start
+Route::post('/rooms/{code}/start', [RoomController::class, 'start'])
+    ->name('rooms.start');
+
+//game
+Route::get('/rooms/{code}/game', [GameController::class, 'show'])
+    ->name('games.show');
+
 
 
 Route::middleware(['auth', 'verified'])->group(function () {

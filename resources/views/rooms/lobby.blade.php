@@ -33,10 +33,16 @@
     </ul>
 
     <a href="{{ route('rooms.show', ['code' => $room['code']]) }}">
-        Room refresh
+        รีเฟรช
     </a>
 
-    @if (collect($room['players'])->contains('player_uuid', session('player_uuid')))
+    @if (
+        $room['status'] === 'waiting'
+        && collect($room['players'])->contains(
+            'player_uuid',
+            session('player_uuid')
+        )
+    )
     <form method="POST" action="{{ route('rooms.leave', ['code' => $room['code']]) }}">
         @csrf
 
@@ -47,5 +53,34 @@
     @foreach ($errors->all() as $error)
         <p>{{ $error }}</p>
     @endforeach
+
+
+    @if (
+    $room['status'] === 'waiting'
+    && session('player_uuid') === $room['host_uuid']
+)
+    <form
+        method="POST"
+        action="{{ route('rooms.start', ['code' => $room['code']]) }}"
+    >
+        @csrf
+
+        <button type="submit">เริ่มเกม</button>
+    </form>
+    @endif
+
+    @if (
+        ($room['game_uuid'] ?? null) !== null
+        && collect($room['players'])->contains(
+            'player_uuid',
+            session('player_uuid')
+        )
+    )
+        <p>Game Session: {{ $room['game_uuid'] }}</p>
+        <p>กำลังเตรียมเกม — รอเชื่อมระบบแจก Role</p>
+        <a href="{{ route('games.show', ['code' => $room['code']]) }}">
+            เข้าหน้าเกม
+        </a>
+    @endif
 </body>
 </html>
