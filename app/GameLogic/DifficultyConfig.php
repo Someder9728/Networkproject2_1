@@ -19,8 +19,8 @@ class DifficultyConfig
             4 => [
                 self::EASY => [
                     'werewolf_count' => 1,
-                    'day_discussion_sec' => 120,
-                    'day_voting_sec' => 45,
+                    'day_discussion_sec' => 12,
+                    'day_voting_sec' => 20,
                     'seer_checks_limit' => null,
                     'seer_accuracy' => true,
                     'reveal_role_on_death' => true,
@@ -38,7 +38,7 @@ class DifficultyConfig
             ],
             6 => [
                 self::EASY => [
-                    'werewolf_count' => 1,
+                    'werewolf_count' => 2,
                     'day_discussion_sec' => 120,
                     'day_voting_sec' => 45,
                     'seer_checks_limit' => null,

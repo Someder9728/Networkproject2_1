@@ -25,6 +25,10 @@
             <li>
                 {{ $player['name'] }}
 
+                @if ($player['player_uuid'] === session('player_uuid'))
+                    <strong> (คุณ)</strong>
+                @endif
+
                 @if ($player['player_uuid'] === $room['host_uuid'])
                     — Host
                 @endif

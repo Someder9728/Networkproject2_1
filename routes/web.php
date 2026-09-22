@@ -48,6 +48,24 @@ Route::post('/rooms/{code}/start', [RoomController::class, 'start'])
 Route::get('/rooms/{code}/game', [GameController::class, 'show'])
     ->name('games.show');
 
+Route::post(
+    '/rooms/{code}/game/begin-discussion',
+    [GameController::class, 'beginDiscussion']
+)->name('games.begin-discussion');
+
+Route::post(
+    '/rooms/{code}/game/finish-discussion',
+    [GameController::class, 'finishDiscussion']
+)->name('games.finish-discussion');
+
+Route::post('/rooms/{code}/game/vote', [GameController::class, 'vote'])
+    ->name('games.vote');
+
+Route::post(
+    '/rooms/{code}/game/finish-voting',
+    [GameController::class, 'finishVoting']
+)->name('games.finish-voting');
+
 
 
 Route::middleware(['auth', 'verified'])->group(function () {

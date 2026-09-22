@@ -25,4 +25,110 @@ class GameController extends Controller
 
         return view('games.show', ['game' => $game]);
     }
+
+    public function beginDiscussion(
+        Request $request,
+        RoomService $roomService,
+        string $code
+    ): \Illuminate\Http\RedirectResponse {
+        $playerUuid = $request->session()->get('player_uuid');
+
+        abort_unless(
+            is_string($playerUuid) && $playerUuid !== '',
+            403,
+            'ไม่พบตัวตนผู้เล่น'
+        );
+
+        $roomService->beginDiscussion($code, $playerUuid);
+
+        return redirect()->route('games.show', [
+            'code' => strtoupper($code),
+        ]);
+    }
+
+    public function finishDiscussion(
+        Request $request,
+        RoomService $roomService,
+        string $code
+    ): \Illuminate\Http\RedirectResponse {
+        $playerUuid = $request->session()->get('player_uuid');
+
+        abort_unless(
+            is_string($playerUuid) && $playerUuid !== '',
+            403,
+            'ไม่พบตัวตนผู้เล่น'
+        );
+
+        $validated = $request->validate([
+            'expected_end_time' => ['required', 'string', 'date'],
+        ]);
+
+        $roomService->finishDiscussion(
+            $code,
+            $playerUuid,
+            $validated['expected_end_time']
+        );
+
+        return redirect()->route('games.show', [
+            'code' => strtoupper($code),
+        ]);
+    }
+
+    public function vote(
+        Request $request,
+        RoomService $roomService,
+        string $code
+    ): \Illuminate\Http\RedirectResponse {
+        $playerUuid = $request->session()->get('player_uuid');
+
+        abort_unless(
+            is_string($playerUuid) && $playerUuid !== '',
+            403,
+            'ไม่พบตัวตนผู้เล่น'
+        );
+
+        $validated = $request->validate([
+            'target_uuid' => ['required', 'uuid'],
+            'expected_end_time' => ['required', 'string', 'date'],
+        ]);
+
+        $roomService->vote(
+            $code,
+            $playerUuid,
+            $validated['target_uuid'],
+            $validated['expected_end_time']
+        );
+
+        return redirect()
+            ->route('games.show', ['code' => strtoupper($code)])
+            ->with('success', 'บันทึกโหวตแล้ว');
+    }
+
+    public function finishVoting(
+        Request $request,
+        RoomService $roomService,
+        string $code
+    ): \Illuminate\Http\RedirectResponse {
+        $playerUuid = $request->session()->get('player_uuid');
+
+        abort_unless(
+            is_string($playerUuid) && $playerUuid !== '',
+            403,
+            'ไม่พบตัวตนผู้เล่น'
+        );
+
+        $validated = $request->validate([
+            'expected_end_time' => ['required', 'string', 'date'],
+        ]);
+
+        $roomService->finishVoting(
+            $code,
+            $playerUuid,
+            $validated['expected_end_time']
+        );
+
+        return redirect()->route('games.show', [
+            'code' => strtoupper($code),
+        ]);
+    }
 }
