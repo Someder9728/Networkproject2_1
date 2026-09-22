@@ -109,5 +109,26 @@
             <button type="submit">เข้าห้อง</button>
         </form>
     </section>
+
+    @if (!empty($currentRoom))
+        <form
+            method="POST"
+            action="{{ route('games.leave-unavailable', [
+                'code' => $currentRoom['code'],
+            ]) }}"
+            onsubmit="return confirm('ออกจากห้องที่ค้างถาวรหรือไม่?')"
+        >
+            @csrf
+
+            <p>
+                หากเปิดห้องเดิมแล้วพบปัญหาข้อมูลเกม
+                ให้ใช้ปุ่มนี้เพื่อออกจากห้อง
+            </p>
+
+            <button type="submit">
+                ออกจากห้องที่ข้อมูลเกมใช้ไม่ได้
+            </button>
+        </form>
+    @endif
 </body>
 </html>

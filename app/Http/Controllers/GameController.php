@@ -269,4 +269,29 @@ class GameController extends Controller
             'code' => strtoupper($code),
         ]);
     }
+
+    public function leaveUnavailableGame(
+        Request $request,
+        RoomService $roomService,
+        string $code
+    ): \Illuminate\Http\RedirectResponse {
+        $playerUuid = $request->session()->get('player_uuid');
+
+        abort_unless(
+            is_string($playerUuid) && $playerUuid !== '',
+            403,
+            'ไม่พบตัวตนผู้เล่น'
+        );
+
+        $code = strtoupper(trim($code));
+
+        $roomService->leaveUnavailableGame($code, $playerUuid);
+
+        if ($request->session()->get('current_room_code') === $code) {
+            $request->session()->forget('current_room_code');
+        }
+
+        return redirect()->route('rooms.index')
+            ->with('success', 'ออกจากห้องที่ค้างแล้ว คุณสร้างหรือเข้าห้องใหม่ได้');
+    }
 }

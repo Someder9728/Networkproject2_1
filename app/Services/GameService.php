@@ -56,6 +56,9 @@ class GameService
             'config' => $config,
             'seer_checks_used' => [],
             'seer_results' => [],
+            'night_event' => null,
+            'day_config' => $config,
+            'day_event' => null,
         ];
     }
 }

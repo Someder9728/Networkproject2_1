@@ -19,8 +19,9 @@ class DifficultyConfig
             4 => [
                 self::EASY => [
                     'werewolf_count' => 1,
-                    'day_discussion_sec' => 12,
-                    'day_voting_sec' => 20,
+                    'day_discussion_sec' => 15,
+                    // fix time for debug 120,45 -> 15
+                    'day_voting_sec' => 15,
                     'seer_checks_limit' => null,
                     'seer_accuracy' => true,
                     'reveal_role_on_death' => true,

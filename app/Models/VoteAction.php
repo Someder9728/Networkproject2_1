@@ -17,5 +17,6 @@ class VoteAction extends Model
         'action_type',
         'players_voter_id',
         'players_target_id',
+        'ballot_number',
     ];
 }

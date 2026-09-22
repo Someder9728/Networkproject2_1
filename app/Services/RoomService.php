@@ -11,6 +11,8 @@ use App\GameLogic\RoleAbility;
 use App\Models\Room;
 use Illuminate\Support\Facades\DB;
 use App\Models\VoteAction;
+use App\GameLogic\RandomEvent;
+use App\GameLogic\GameConfiguration;
 
 class RoomService
 {
@@ -205,10 +207,11 @@ class RoomService
 
         if ($game['current_phase'] === 'day_voting') {
             $votes = $this->loadDayVotes(
-                $code,
-                $game['current_round'],
-                $game['players']
-            );
+                    $code,
+                    $game['current_round'],
+                    $game['players'],
+                    $game['ballot_number'] ?? 1
+                );
 
             $myVote = $votes[$playerUuid] ?? null;
         }
@@ -292,6 +295,21 @@ class RoomService
             }
         }
 
+        $nightEvent = null;
+        $storedEvent = $game['night_event'] ?? null;
+
+        if ($storedEvent !== null) {
+            $event = $storedEvent['event'];
+
+            $nightEvent = [
+                'id' => $event['id'],
+                'name' => $event['name'],
+                'description' => $event['description'],
+                'night_round' => $storedEvent['night_round'],
+                'applies_to_round' => $storedEvent['applies_to_round'],
+            ];
+        }
+
         return [
             'game_uuid' => $game['game_uuid'],
             'room_code' => $game['room_code'],
@@ -337,7 +355,10 @@ class RoomService
             'my_seer_results' => $me['role'] === 'seer'
                 ? ($game['seer_results'][$playerUuid] ?? [])
                 : [],
+            'night_event' => $nightEvent,
+            'day_event' => $game['day_event'] ?? null,
             'vote_result' => $voteResult,
+            'ballot_number' => $game['ballot_number'] ?? 1,
             'winner' => $game['winner'],
         ];
     }
@@ -406,8 +427,8 @@ class RoomService
                 $game['current_phase'] = $phaseManager->getCurrentPhase();
                 $game['current_round'] = 1;
                 $game['phase_end_time'] = now()
-                    ->addSeconds($phaseManager->getPhaseDuration())
-                    ->toIso8601String();
+                ->addSeconds($game['config']['day_discussion_sec'])
+                ->toIso8601String();
 
                 $room['status'] = $game['current_phase'];
                 $room['game'] = $game;
@@ -474,8 +495,12 @@ class RoomService
 
                 $game['current_phase'] = $phaseManager->nextPhase();
                 $game['day_votes'] = [];
+                $game['ballot_number'] = 1;
+
+                $dayConfig = $game['day_config'] ?? $game['config'];
+
                 $game['phase_end_time'] = now()
-                    ->addSeconds($phaseManager->getPhaseDuration())
+                    ->addSeconds($dayConfig['day_voting_sec'])
                     ->toIso8601String();
 
                 $room['status'] = $game['current_phase'];
@@ -554,7 +579,8 @@ class RoomService
                 $storedVotes = $this->loadDayVotes(
                     $code,
                     $game['current_round'],
-                    $game['players']
+                    $game['players'],
+                    $game['ballot_number'] ?? 1
                 );
 
                 foreach ($storedVotes as $voter => $targetId) {
@@ -626,13 +652,48 @@ class RoomService
                 $votes = $this->loadDayVotes(
                     $code,
                     $game['current_round'],
-                    $game['players']
+                    $game['players'],
+                    $game['ballot_number'] ?? 1
                 );
 
-                $targetUuid = RoleAbility::resolveDayVote(
-                    $votes,
-                    $game['config']['tie_breaking']
-                );
+                $ballotNumber = $game['ballot_number'] ?? 1;
+                $dayConfig = $game['day_config'] ?? $game['config'];
+                $rule = $dayConfig['tie_breaking'];
+
+                $counts = array_count_values(array_values($votes));
+
+                $isTie = false;
+
+                if ($counts !== []) {
+                    $highest = max($counts);
+                    $topTargets = array_keys($counts, $highest);
+
+                    $isTie = count($topTargets) > 1;
+                }
+
+                if (
+                    $rule === 'revote_once'
+                    && $isTie
+                    && $ballotNumber === 1
+                ) {
+                    $game['ballot_number'] = 2;
+                    $game['day_votes'] = [];
+                    $game['phase_end_time'] = now()
+                        ->addSeconds($dayConfig['day_voting_sec'])
+                        ->toIso8601String();
+
+                    $room['game'] = $game;
+                    $this->saveGameRoom($room);
+
+                    return $room;
+                }
+
+                $targetUuid = $votes === []
+                    ? null
+                    : RoleAbility::resolveDayVote(
+                        $votes,
+                        $rule === 'revote_once' ? 'no_death' : $rule
+                    );
 
                 $game['vote_result'] = [
                     'round' => $game['current_round'],
@@ -677,6 +738,20 @@ class RoomService
 
                     $game['night_actions'] = [];
                     $room['status'] = $game['current_phase'];
+
+                    $game['night_event'] = [
+                    'night_round' => $game['current_round'],
+                    'applies_to_round' => $game['current_round'] + 1,
+                    // 'event' => RandomEvent::random(
+                    //     count($game['players']),
+                    //     $game['difficulty']
+                    // ),
+                    'event' => RandomEvent::get(
+                        'short_discussion',
+                        $game['difficulty'],
+                        count($game['players'])
+                    ),
+                ];
                 }
 
                 $room['game'] = $game;
@@ -732,6 +807,9 @@ class RoomService
                         'phase_type' => $game['current_phase'],
                         'action_type' => $voteData['action_type'] ?? 'vote_lynch',
                         'players_voter_id' => $voter->player_id,
+                        'ballot_number' => $game['current_phase'] === 'day_voting'
+                        ? ($game['ballot_number'] ?? 1)
+                        : 1,
                     ],
                     [
                         'players_target_id' => $target->player_id,
@@ -747,7 +825,8 @@ class RoomService
     private function loadDayVotes(
         string $code,
         int $round,
-        array $gamePlayers
+        array $gamePlayers,
+        int $ballotNumber = 1
     ): array {
         $record = Room::where('room_code', strtoupper($code))
             ->firstOrFail();
@@ -765,6 +844,7 @@ class RoomService
             ->where('phase_number', $round)
             ->where('phase_type', 'day_voting')
             ->where('action_type', 'vote_lynch')
+            ->where('ballot_number', $ballotNumber)
             ->orderBy('vote_id')
             ->get();
 
@@ -1257,11 +1337,51 @@ class RoomService
                     $room['status'] = 'ended';
                 } else {
                     $game['current_round']++;
-                    $game['current_phase'] =
-                        PhaseManager::PHASE_DAY_DISCUSSION;
+                    $game['current_phase'] = PhaseManager::PHASE_DAY_DISCUSSION;
+
+                    // เริ่มจากค่าพื้นฐานทุกครั้ง ไม่ใช้ค่าที่ถูกปรับจากรอบเก่า
+                    $dayConfig = $game['config'];
+                    $game['day_event'] = null;
+
+                    $nightEvent = $game['night_event'] ?? null;
+
+                    if (
+                        $nightEvent !== null
+                        && $nightEvent['applies_to_round'] === $game['current_round']
+                    ) {
+                        $event = $nightEvent['event'];
+                        $supported = $event['id'] !== 'second_chance';
+
+                        // second_chance ยังรอเชื่อมโฟลว์โหวตใหม่
+                        $dayConfig = GameConfiguration::applyRandomEvent(
+                            $game['config'],
+                            $event
+                        );
+
+                        $game['day_event'] = [
+                            'id' => $event['id'],
+                            'name' => $event['name'],
+                            'description' => $event['description'],
+                            'round' => $game['current_round'],
+                            'applied' => $event['id'] !== 'none',
+                        ];
+                    }
+
+                    // ป้องกันค่าทดสอบที่ลดเวลาแล้วเหลือศูนย์หรือติดลบ
+                    $dayConfig['day_discussion_sec'] = max(
+                        1,
+                        (int) $dayConfig['day_discussion_sec']
+                    );
+
+                    $dayConfig['day_voting_sec'] = max(
+                        1,
+                        (int) $dayConfig['day_voting_sec']
+                    );
+
+                    $game['day_config'] = $dayConfig;
 
                     $game['phase_end_time'] = now()
-                        ->addSeconds($game['config']['day_discussion_sec'])
+                        ->addSeconds($dayConfig['day_discussion_sec'])
                         ->toIso8601String();
 
                     $room['status'] = 'day_discussion';
@@ -1269,6 +1389,75 @@ class RoomService
 
                 $room['game'] = $game;
                 $this->saveGameRoom($room);
+            });
+    }
+
+    public function leaveUnavailableGame(
+        string $code,
+        string $playerUuid
+    ): void {
+        $code = strtoupper(trim($code));
+
+        Cache::store('file')->lock('room-lock:' . $code, 10)
+            ->block(3, function () use ($code, $playerUuid) {
+                DB::transaction(function () use ($code, $playerUuid) {
+                    $room = Room::where('room_code', $code)
+                        ->lockForUpdate()
+                        ->firstOrFail();
+
+                    $player = $room->players()
+                        ->where('player_uuid', $playerUuid)
+                        ->first();
+
+                    abort_unless(
+                        $player !== null,
+                        403,
+                        'คุณไม่ได้เป็นสมาชิกห้องนี้'
+                    );
+
+                    // คำขอซ้ำหลังออกแล้ว ไม่แก้ข้อมูลเพิ่ม
+                    if ($player->has_left) {
+                        return;
+                    }
+
+                    $snapshot = $room->game_snapshot;
+
+                    $snapshotMatches = is_array($snapshot)
+                        && ($snapshot['game_uuid'] ?? null)
+                            === $room->game_uuid;
+
+                    if ($room->game_uuid === null || $snapshotMatches) {
+                        throw ValidationException::withMessages([
+                            'room' => 'ห้องนี้ไม่เข้าเงื่อนไขกู้ทางออก กรุณาใช้ปุ่มออกตามปกติ',
+                        ]);
+                    }
+
+                    $wasHost = $player->is_host;
+
+                    $player->update([
+                        'has_left' => true,
+                        'is_connected' => false,
+                        'is_alive' => false,
+                        'is_host' => false,
+                    ]);
+
+                    if ($wasHost) {
+                        $nextHost = $room->players()
+                            ->where('has_left', false)
+                            ->orderBy('player_id')
+                            ->first();
+
+                        if ($nextHost !== null) {
+                            $nextHost->update(['is_host' => true]);
+                        }
+                    }
+
+                    // ห้องนี้เล่นต่อไม่ได้ แต่เก็บประวัติเดิมไว้
+                    $room->update([
+                        'room_status' => 'ended',
+                        'room_phase_end_time' => null,
+                    ]);
+                });
             });
     }
 

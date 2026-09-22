@@ -103,6 +103,14 @@
         <h2>ช่วงพูดคุย — รอบ {{ $game['current_round'] }}</h2>
     @elseif ($game['current_phase'] === 'day_voting')
         <h2>ช่วงโหวต — รอบ {{ $game['current_round'] }}</h2>
+
+        <p>การโหวตครั้งที่ {{ $game['ballot_number'] }}</p>
+
+        @if ($game['ballot_number'] === 2)
+            <p>คะแนนครั้งแรกเสมอ จึงเปิดโหวตใหม่อีก 1 ครั้ง</p>
+        @endif
+
+
         <p>เลือกผู้เล่นที่ต้องการโหวต เปลี่ยนเป้าหมายได้ก่อนหมดเวลา</p>
     @endif
 
@@ -366,6 +374,49 @@
 
             <button type="submit">ตรวจเวลาจบกลางคืน</button>
         </form>
+    @endif
+
+    @if (
+        $game['current_phase'] === 'night'
+        && $game['night_event'] !== null
+    )
+        <section>
+            <h2>
+                Event จากคืนรอบ {{ $game['night_event']['night_round'] }}
+            </h2>
+
+            <p>{{ $game['night_event']['name'] }}</p>
+
+            @if ($game['night_event']['id'] !== 'none')
+                <p>{{ $game['night_event']['description'] }}</p>
+
+                <p>
+                    สำหรับกลางวันรอบ
+                    {{ $game['night_event']['applies_to_round'] }}
+                </p>
+
+                <p>กำลังทดสอบประกาศ Event — ผลจะเริ่มในกลางวันถัดไป โดยโอกาสลงคะแนนใหม่ยังอยู่ระหว่างเชื่อมระบบ</p>
+            @endif
+        </section>
+    @endif
+
+
+    @if (
+        in_array($game['current_phase'], ['day_discussion', 'day_voting'], true)
+        && $game['day_event'] !== null
+        && $game['day_event']['id'] !== 'none'
+    )
+        <section>
+            <h2>Event กลางวันรอบ {{ $game['day_event']['round'] }}</h2>
+            <p>{{ $game['day_event']['name'] }}</p>
+
+            @if ($game['day_event']['applied'])
+                <p>{{ $game['day_event']['description'] }}</p>
+                <p>มีผลในกลางวันรอบนี้</p>
+            @else
+                <p>Event นี้ยังไม่เปิดใช้ — รอบนี้ใช้กติกาพื้นฐาน</p>
+            @endif
+        </section>
     @endif
 
     @if ($game['phase_end_time'] !== null)

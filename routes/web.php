@@ -78,6 +78,12 @@ Route::post(
     [GameController::class, 'leaveGame']
 )->name('games.leave');
 
+// in case leave
+Route::post(
+    '/rooms/{code}/game/leave-unavailable',
+    [GameController::class, 'leaveUnavailableGame']
+)->name('games.leave-unavailable');
+
 //action
 Route::post(
     '/rooms/{code}/game/werewolf-action',
