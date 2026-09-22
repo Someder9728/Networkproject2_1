@@ -28,7 +28,7 @@ class DifficultyConfig
                     'tie_breaking' => 'no_death',
                 ],
                 self::HARD => [
-                    'werewolf_count' => 1,
+                    'werewolf_count' => 2,
                     'day_discussion_sec' => 60,
                     'day_voting_sec' => 30,
                     'seer_checks_limit' => 3,
