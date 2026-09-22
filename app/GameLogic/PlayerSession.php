@@ -5,7 +5,7 @@ namespace App\GameLogic;
 class PlayerSession
 {
     // จัดการเมื่อผู้เล่นหลุดการเชื่อมต่อ
-    public static function handleDisconnect(array &$playerData, int $timeoutSeconds = 60): bool
+    public static function handleDisconnect(array &$playerData): bool
     {
         $playerData['is_connected'] = false;
         $playerData['disconnected_at'] = time();
@@ -24,5 +24,5 @@ class PlayerSession
             }
         }
         return false;
-            }
+    }
 }

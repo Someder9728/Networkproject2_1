@@ -13,6 +13,7 @@ class PhaseManager
     private int $playerCount;
     private string $difficulty;
     private array $config;
+    private ?int $phaseStartedAt = null;
 
     public function __construct(int $playerCount, string $difficulty)
     {
@@ -22,11 +23,18 @@ class PhaseManager
         
         // เริ่มต้นเกมที่ Day Discussion
         $this->currentPhase = self::PHASE_DAY_DISCUSSION;
+        $this->startPhase();
     }
 
     public function getCurrentPhase(): string
     {
         return $this->currentPhase;
+    }
+
+    // เริ่มนับเวลาของ Phase ปัจจุบันบน Server
+    public function startPhase(): void
+    {
+        $this->phaseStartedAt = time();
     }
 
     // ดึงเวลาถอยหลัง (วินาที) ตาม Phase ปัจจุบัน
@@ -40,6 +48,22 @@ class PhaseManager
         };
     }
 
+    // คืนค่าเวลาที่ Phase นี้จะจบลง (Unix Timestamp) สำหรับส่งให้ WebSocket Broadcast
+    public function getPhaseEndsAt(): int
+    {
+        return ($this->phaseStartedAt ?? time()) + $this->getPhaseDuration();
+    }
+
+    // คืนค่าเวลาที่เหลืออยู่จริง (วินาที)
+    public function getRemainingSeconds(): int
+    {
+        if ($this->phaseStartedAt === null) {
+            return $this->getPhaseDuration();
+        }
+        $remaining = $this->getPhaseEndsAt() - time();
+        return max(0, $remaining);
+    }
+
     // สลับไปยัง Phase ถัดไปตาม Sequence
     public function nextPhase(): string
     {
@@ -49,6 +73,8 @@ class PhaseManager
             self::PHASE_NIGHT => self::PHASE_DAY_DISCUSSION,
             default => self::PHASE_GAME_OVER,
         };
+
+        $this->startPhase(); // เริ่มนับเวลาใหม่ทันทีที่เปลี่ยน Phase
 
         return $this->currentPhase;
     }

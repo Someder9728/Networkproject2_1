@@ -37,8 +37,10 @@ class ActionQueue
     {
         $votes = [];
         foreach ($this->nightActions as $actorId => $action) {
-            if ($action['role'] === RoleAssignment::ROLE_WEREWOLF) {
-                $votes[] = $action['target_id'];
+            if (is_array($action) && isset($action['role'], $action['target_id'])) {
+                if ($action['role'] === RoleAssignment::ROLE_WEREWOLF) {
+                    $votes[] = $action['target_id'];
+                }
             }
         }
         return $votes;

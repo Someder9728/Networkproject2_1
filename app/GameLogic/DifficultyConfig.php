@@ -5,7 +5,6 @@ namespace App\GameLogic;
 class DifficultyConfig
 {
     public const EASY = 'easy';
-
     public const HARD = 'hard';
 
     public static function supportedPlayerCounts(): array
