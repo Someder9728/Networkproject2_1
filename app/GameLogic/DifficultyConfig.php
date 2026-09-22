@@ -38,7 +38,7 @@ class DifficultyConfig
             ],
             6 => [
                 self::EASY => [
-                    'werewolf_count' => 2,
+                    'werewolf_count' => 1,
                     'day_discussion_sec' => 120,
                     'day_voting_sec' => 45,
                     'seer_checks_limit' => null,
