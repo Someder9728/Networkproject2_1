@@ -156,7 +156,7 @@ class GameController extends Controller
             );
         }
 
-        public function leaveGame(
+    public function leaveGame(
         Request $request,
         RoomService $roomService,
         string $code
@@ -180,5 +180,93 @@ class GameController extends Controller
 
         return redirect()->route('rooms.index')
             ->with('success', 'ออกจากเกมแล้ว คุณสร้างหรือเข้าห้องใหม่ได้');
+    }
+
+    public function werewolfAction(
+        Request $request,
+        RoomService $roomService,
+        string $code
+    ): \Illuminate\Http\RedirectResponse {
+        $playerUuid = $request->session()->get('player_uuid');
+
+        abort_unless(
+            is_string($playerUuid) && $playerUuid !== '',
+            403,
+            'ไม่พบตัวตนผู้เล่น'
+        );
+
+        $validated = $request->validate([
+            'target_uuid' => ['required', 'uuid'],
+            'expected_end_time' => ['required', 'string', 'date'],
+        ]);
+
+        $roomService->werewolfAction(
+            $code,
+            $playerUuid,
+            $validated['target_uuid'],
+            $validated['expected_end_time']
+        );
+
+        return redirect()
+            ->route('games.show', ['code' => strtoupper($code)])
+            ->with('success', 'บันทึกเป้าหมายแล้ว');
+    }
+
+    public function seerAction(
+        Request $request,
+        RoomService $roomService,
+        string $code
+    ): \Illuminate\Http\RedirectResponse {
+        $playerUuid = $request->session()->get('player_uuid');
+
+        abort_unless(
+            is_string($playerUuid) && $playerUuid !== '',
+            403,
+            'ไม่พบตัวตนผู้เล่น'
+        );
+
+        $validated = $request->validate([
+            'target_uuid' => ['required', 'uuid'],
+            'expected_end_time' => ['required', 'string', 'date'],
+        ]);
+
+        $roomService->seerAction(
+            $code,
+            $playerUuid,
+            $validated['target_uuid'],
+            $validated['expected_end_time']
+        );
+
+        return redirect()
+            ->route('games.show', ['code' => strtoupper($code)])
+            ->with('success', 'บันทึกคำสั่งตรวจแล้ว รอผลเมื่อจบกลางคืน');
+    }
+
+        public function finishNight(
+        Request $request,
+        RoomService $roomService,
+        string $code
+    ): \Illuminate\Http\RedirectResponse {
+        $playerUuid = $request->session()->get('player_uuid');
+
+        abort_unless(
+            is_string($playerUuid) && $playerUuid !== '',
+            403,
+            'ไม่พบตัวตนผู้เล่น'
+        );
+
+        $validated = $request->validate([
+            'expected_end_time' => ['required', 'string', 'date'],
+        ]);
+
+        $roomService->finishNight(
+            $code,
+            $playerUuid,
+            $validated['expected_end_time']
+        );
+
+        return redirect()->route('games.show', [
+            'code' => strtoupper($code),
+        ]);
     }
 }

@@ -37,6 +37,26 @@
         <p>{{ $roleLabels[$game['my_role']] ?? 'ไม่ทราบบทบาท' }}</p>
     @endif
 
+    @if ($game['my_role'] === 'werewolf')
+    <h2>หมาป่าร่วมทีม</h2>
+
+    @forelse ($game['werewolf_teammates'] as $teammate)
+            <p>
+                {{ $teammate['name'] }}
+
+                @if ($teammate['has_left'])
+                    — ออกจากเกมแล้ว
+                @elseif (!$teammate['is_alive'])
+                    — เสียชีวิต
+                @else
+                    — มีชีวิต
+                @endif
+            </p>
+        @empty
+            <p>คุณเป็นหมาป่าเพียงคนเดียว</p>
+        @endforelse
+    @endif
+ 
     <h2>ผู้เล่น</h2>
 
     <ul>
@@ -178,7 +198,6 @@
         </h2>
     @elseif ($game['current_phase'] === 'night')
         <h2>ช่วงกลางคืน</h2>
-        <p>ระบบส่ง Night Action จะเชื่อมในขั้นถัดไป</p>
     @endif
 
     @if (
@@ -214,6 +233,141 @@
         <button type="submit">ออกจากเกมถาวร</button>
     </form>
 
+    @if ($game['can_werewolf_act'])
+        <h2>เลือกเป้าหมายคืนนี้</h2>
+
+        <form
+            method="POST"
+            action="{{ route('games.werewolf-action', [
+                'code' => $game['room_code'],
+            ]) }}"
+        >
+            @csrf
+
+            <input
+                type="hidden"
+                name="expected_end_time"
+                value="{{ $game['phase_end_time'] }}"
+            >
+
+            <select name="target_uuid" required>
+                <option value="">เลือกผู้เล่น</option>
+
+                @foreach ($game['werewolf_targets'] as $target)
+                    <option
+                        value="{{ $target['player_uuid'] }}"
+                        @selected(
+                            $game['my_night_target'] === $target['player_uuid']
+                        )
+                    >
+                        {{ $target['name'] }}
+                    </option>
+                @endforeach
+            </select>
+
+            <button type="submit">ยืนยันเป้าหมาย</button>
+        </form>
+    @endif
+
+    @if ($game['my_role'] === 'seer')
+        <p>
+            ใช้สิทธิ์ตรวจแล้ว {{ $game['my_seer_checks_used'] }} ครั้ง
+            / {{ $game['my_seer_checks_limit'] ?? 'ไม่จำกัด' }}
+        </p>
+    @endif
+
+    @if ($game['can_seer_act'])
+        <h2>เลือกผู้เล่นที่จะตรวจคืนนี้</h2>
+
+        <form
+            method="POST"
+            action="{{ route('games.seer-action', [
+                'code' => $game['room_code'],
+            ]) }}"
+        >
+            @csrf
+
+            <input
+                type="hidden"
+                name="expected_end_time"
+                value="{{ $game['phase_end_time'] }}"
+            >
+
+            <select name="target_uuid" required>
+                <option value="">เลือกผู้เล่น</option>
+
+                @foreach ($game['seer_targets'] as $target)
+                    <option
+                        value="{{ $target['player_uuid'] }}"
+                        @selected(
+                            $game['my_night_target'] === $target['player_uuid']
+                        )
+                    >
+                        {{ $target['name'] }}
+                    </option>
+                @endforeach
+            </select>
+
+            <button type="submit">ยืนยันการตรวจ</button>
+        </form>
+    @endif
+
+
+    @if ($game['night_result'] !== null)
+        <h2>ผลกลางคืนรอบ {{ $game['night_result']['round'] }}</h2>
+
+        @if ($game['night_result']['name'] !== null)
+            <p>ผู้เสียชีวิต: {{ $game['night_result']['name'] }}</p>
+
+            @if (isset($game['night_result']['role']))
+                <p>
+                    บทบาท:
+                    {{ $roleLabels[$game['night_result']['role']] }}
+                </p>
+            @endif
+        @else
+            <p>คืนนี้ไม่มีผู้เสียชีวิตจากหมาป่า</p>
+        @endif
+    @endif
+
+    @if ($game['my_role'] === 'seer')
+        <h2>ผลตรวจของคุณ</h2>
+
+        @forelse ($game['my_seer_results'] as $result)
+            <p>
+                รอบ {{ $result['round'] }}:
+                {{ $result['target_name'] }}
+                — {{ $result['is_werewolf'] ? 'เป็นหมาป่า' : 'ไม่ใช่หมาป่า' }}
+            </p>
+        @empty
+            <p>ยังไม่มีผลตรวจ</p>
+        @endforelse
+    @endif
+
+    @if (
+        $game['status'] === 'in_progress'
+        && $game['current_phase'] === 'night'
+        && $game['phase_end_time'] !== null
+    )
+        <form
+            id="finish-night-form"
+            method="POST"
+            action="{{ route('games.finish-night', [
+                'code' => $game['room_code'],
+            ]) }}"
+        >
+            @csrf
+
+            <input
+                type="hidden"
+                name="expected_end_time"
+                value="{{ $game['phase_end_time'] }}"
+            >
+
+            <button type="submit">ตรวจเวลาจบกลางคืน</button>
+        </form>
+    @endif
+
     @if ($game['phase_end_time'] !== null)
         <script>
             const timerElement = document.getElementById('phase-timer');
@@ -244,7 +398,8 @@
 
                         const form =
                             document.getElementById('finish-discussion-form')
-                            ?? document.getElementById('finish-voting-form');
+                            ?? document.getElementById('finish-voting-form')
+                            ?? document.getElementById('finish-night-form');
 
                         if (form) {
                             timerElement.textContent = 'หมดเวลา — กำลังประมวลผล';

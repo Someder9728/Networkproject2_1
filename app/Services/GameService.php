@@ -54,6 +54,8 @@ class GameService
             'phase_end_time' => null,
             'winner' => null,
             'config' => $config,
+            'seer_checks_used' => [],
+            'seer_results' => [],
         ];
     }
 }

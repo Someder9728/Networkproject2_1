@@ -78,6 +78,23 @@ Route::post(
     [GameController::class, 'leaveGame']
 )->name('games.leave');
 
+//action
+Route::post(
+    '/rooms/{code}/game/werewolf-action',
+    [GameController::class, 'werewolfAction']
+)->name('games.werewolf-action');
+
+Route::post(
+    '/rooms/{code}/game/seer-action',
+    [GameController::class, 'seerAction']
+)->name('games.seer-action');
+
+//fin nigth
+Route::post(
+    '/rooms/{code}/game/finish-night',
+    [GameController::class, 'finishNight']
+)->name('games.finish-night');
+
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::view('dashboard', 'dashboard')->name('dashboard');
 });

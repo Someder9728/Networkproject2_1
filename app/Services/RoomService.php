@@ -56,36 +56,35 @@ class RoomService
 
     public function getRoom(string $code): array
     {
-        $room = $this->roomDatabase->findLobby($code);
+        $code = strtoupper(trim($code));
 
-        abort_if($room === null, 404, 'ไม่พบห้อง');
+        return DB::transaction(function () use ($code) {
+            $room = $this->roomDatabase->findLobby($code);
 
-        // ยังไม่เริ่มเกม: ข้อมูลจาก Database เพียงพอ
-        if ($room['game_uuid'] === null) {
+            abort_if($room === null, 404, 'ไม่พบห้อง');
+
+            if ($room['game_uuid'] === null) {
+                return $room;
+            }
+
+            $record = Room::where('room_code', $code)->firstOrFail();
+            $game = $record->game_snapshot;
+
+            abort_if(
+                !is_array($game)
+                || ($game['game_uuid'] ?? null) !== $room['game_uuid'],
+                409,
+                'เกมนี้ยังไม่มี Snapshot ที่ใช้งานได้'
+            );
+
+            $room['game'] = $game;
+
+            if ($game['status'] === 'roles_assigned') {
+                $room['status'] = 'initializing';
+            }
+
             return $room;
-        }
-
-        $cachedRoom = Cache::store('file')->get(
-            'room:' . $room['code']
-        );
-
-        $game = $cachedRoom['game'] ?? null;
-
-        abort_if(
-            $game === null
-            || ($game['game_uuid'] ?? null) !== $room['game_uuid'],
-            409,
-            'ข้อมูลเกมชั่วคราวไม่พร้อมหรือหมดอายุ ไม่สามารถเล่นต่อได้'
-        );
-
-        $room['game'] = $game;
-
-        // สถานะเตรียมเกมเป็นสถานะ Runtime
-        if ($game['status'] === 'roles_assigned') {
-            $room['status'] = 'initializing';
-        }
-
-        return $room;
+        });
     }
 
 
@@ -164,6 +163,24 @@ class RoomService
 
         abort_if($me === null, 403, 'คุณไม่ได้เป็นผู้เล่นในเกมนี้');
 
+        $werewolfTeammates = [];
+
+        if ($me['role'] === 'werewolf') {
+            $werewolfTeammates = collect($game['players'])
+                ->filter(fn (array $player) =>
+                    $player['role'] === 'werewolf'
+                    && $player['player_uuid'] !== $playerUuid
+                )
+                ->map(fn (array $player) => [
+                    'player_uuid' => $player['player_uuid'],
+                    'name' => $player['name'],
+                    'is_alive' => $player['is_alive'],
+                    'has_left' => $player['has_left'] ?? false,
+                ])
+                ->values()
+                ->all();
+        }
+
         $voteResult = null;
         $result = $game['vote_result'] ?? null;
 
@@ -196,6 +213,85 @@ class RoomService
             $myVote = $votes[$playerUuid] ?? null;
         }
 
+        $canWerewolfAct =
+            $game['status'] === 'in_progress'
+            && $game['current_phase'] === 'night'
+            && $me['role'] === 'werewolf'
+            && $me['is_alive']
+            && !($me['has_left'] ?? false)
+            && $game['phase_end_time'] !== null
+            && now()->lt(
+                \Carbon\CarbonImmutable::parse($game['phase_end_time'])
+            );
+
+        $werewolfTargets = [];
+
+        if ($canWerewolfAct) {
+            $werewolfTargets = collect($game['players'])
+                ->filter(fn (array $player) =>
+                    $player['is_alive']
+                    && !($player['has_left'] ?? false)
+                    && $player['role'] !== 'werewolf'
+                )
+                ->map(fn (array $player) => [
+                    'player_uuid' => $player['player_uuid'],
+                    'name' => $player['name'],
+                ])
+                ->values()
+                ->all();
+        }
+
+        $seerUsed = $game['seer_checks_used'][$playerUuid] ?? 0;
+        $seerLimit = $game['config']['seer_checks_limit'];
+
+        $canSeerAct =
+            $game['status'] === 'in_progress'
+            && $game['current_phase'] === 'night'
+            && $me['role'] === 'seer'
+            && $me['is_alive']
+            && !($me['has_left'] ?? false)
+            && ($seerLimit === null || $seerUsed < $seerLimit)
+            && $game['phase_end_time'] !== null
+            && now()->lt(
+                \Carbon\CarbonImmutable::parse($game['phase_end_time'])
+            );
+
+        $seerTargets = [];
+
+        if ($canSeerAct) {
+            $seerTargets = collect($game['players'])
+                ->filter(fn (array $player) =>
+                    $player['is_alive']
+                    && !($player['has_left'] ?? false)
+                )
+                ->map(fn (array $player) => [
+                    'player_uuid' => $player['player_uuid'],
+                    'name' => $player['name'],
+                ])
+                ->values()
+                ->all();
+        }
+
+
+        $nightResult = null;
+        $result = $game['night_result'] ?? null;
+
+        if ($result !== null) {
+            $killed = collect($game['players'])->firstWhere(
+                'player_uuid',
+                $result['killed_uuid']
+            );
+
+            $nightResult = [
+                'round' => $result['round'],
+                'name' => $killed['name'] ?? null,
+            ];
+
+            if ($killed !== null && $game['difficulty'] === 'easy') {
+                $nightResult['role'] = $killed['role'];
+            }
+        }
+
         return [
             'game_uuid' => $game['game_uuid'],
             'room_code' => $game['room_code'],
@@ -213,6 +309,7 @@ class RoomService
                 ],
                 $game['players']
             ),
+            'werewolf_teammates' => $werewolfTeammates,
             'can_begin_discussion' =>
                 $room['host_uuid'] === $playerUuid
                 && $game['status'] === 'roles_assigned',
@@ -227,6 +324,19 @@ class RoomService
                 && now()->lt(
                     \Carbon\CarbonImmutable::parse($game['phase_end_time'])
                 ),
+            'can_werewolf_act' => $canWerewolfAct,
+            'werewolf_targets' => $werewolfTargets,
+            'can_seer_act' => $canSeerAct,
+            'seer_targets' => $seerTargets,
+            'my_seer_checks_used' => $me['role'] === 'seer' ? $seerUsed : null,
+            'my_seer_checks_limit' => $me['role'] === 'seer' ? $seerLimit : null,
+            'my_night_target' => in_array($me['role'], ['werewolf', 'seer'], true)
+            ? ($game['night_actions'][$playerUuid]['target_id'] ?? null)
+            : null,
+            'night_result' => $nightResult,
+            'my_seer_results' => $me['role'] === 'seer'
+                ? ($game['seer_results'][$playerUuid] ?? [])
+                : [],
             'vote_result' => $voteResult,
             'winner' => $game['winner'],
         ];
@@ -591,6 +701,7 @@ class RoomService
                     ? 'waiting'
                     : $room['status'],
                 'room_phase_end_time' => $game['phase_end_time'],
+                'game_snapshot' => $game,
             ]);
 
             foreach ($game['players'] as $player) {
@@ -618,8 +729,8 @@ class RoomService
                     [
                         'rooms_room_id' => $record->room_id,
                         'phase_number' => $game['current_round'],
-                        'phase_type' => 'day_voting',
-                        'action_type' => 'vote_lynch',
+                        'phase_type' => $game['current_phase'],
+                        'action_type' => $voteData['action_type'] ?? 'vote_lynch',
                         'players_voter_id' => $voter->player_id,
                     ],
                     [
@@ -629,11 +740,7 @@ class RoomService
             }
         });
 
-        Cache::store('file')->put(
-            'room:' . $room['code'],
-            $room,
-            now()->addHours(2)
-        );
+
     }
 
 
@@ -803,6 +910,361 @@ class RoomService
                         $game['phase_end_time'] = null;
                         $room['status'] = 'ended';
                     }
+                }
+
+                $room['game'] = $game;
+                $this->saveGameRoom($room);
+            });
+    }
+
+    public function werewolfAction(
+        string $code,
+        string $playerUuid,
+        string $targetUuid,
+        string $expectedEndTime
+    ): void {
+        $code = strtoupper(trim($code));
+
+        Cache::store('file')->lock('room-lock:' . $code, 10)
+            ->block(3, function () use (
+                $code,
+                $playerUuid,
+                $targetUuid,
+                $expectedEndTime
+            ) {
+                $room = $this->getRoom($code);
+                $game = $room['game'] ?? null;
+
+                if (
+                    $game === null
+                    || $game['status'] !== 'in_progress'
+                    || $game['current_phase'] !== 'night'
+                    || $game['phase_end_time'] === null
+                    || $game['phase_end_time'] !== $expectedEndTime
+                ) {
+                    throw ValidationException::withMessages([
+                        'action' => 'ไม่ใช่ช่วงกลางคืนปัจจุบัน กรุณารีเฟรช',
+                    ]);
+                }
+
+                if (now()->gte(
+                    \Carbon\CarbonImmutable::parse($game['phase_end_time'])
+                )) {
+                    throw ValidationException::withMessages([
+                        'action' => 'หมดเวลาส่งคำสั่งแล้ว',
+                    ]);
+                }
+
+                $players = collect($game['players']);
+                $actor = $players->firstWhere('player_uuid', $playerUuid);
+                $target = $players->firstWhere('player_uuid', $targetUuid);
+
+                abort_unless(
+                    $actor !== null
+                    && $actor['role'] === 'werewolf'
+                    && !($actor['has_left'] ?? false),
+                    403,
+                    'คุณไม่มีสิทธิ์ใช้คำสั่งหมาป่า'
+                );
+
+                if (
+                    $target === null
+                    || ($target['has_left'] ?? false)
+                ) {
+                    throw ValidationException::withMessages([
+                        'action' => 'เป้าหมายไม่ถูกต้อง',
+                    ]);
+                }
+
+                if (!RoleAbility::canWerewolfKill(
+                    $actor['is_alive'],
+                    $target['is_alive'],
+                    $target['role']
+                )) {
+                    throw ValidationException::withMessages([
+                        'action' => 'เลือกได้เฉพาะคนที่ยังมีชีวิตและไม่ใช่หมาป่า โดยผู้เลือกต้องยังมีชีวิต',
+                    ]);
+                }
+
+                $game['night_actions'][$playerUuid] = [
+                    'role' => 'werewolf',
+                    'target_id' => $targetUuid,
+                ];
+
+                $room['game'] = $game;
+
+                $this->saveGameRoom($room, [
+                    'voter_uuid' => $playerUuid,
+                    'target_uuid' => $targetUuid,
+                    'action_type' => 'werewolf_kill',
+                ]);
+            });
+    }
+
+    public function seerAction(
+        string $code,
+        string $playerUuid,
+        string $targetUuid,
+        string $expectedEndTime
+    ): void {
+        $code = strtoupper(trim($code));
+
+        Cache::store('file')->lock('room-lock:' . $code, 10)
+            ->block(3, function () use (
+                $code,
+                $playerUuid,
+                $targetUuid,
+                $expectedEndTime
+            ) {
+                $room = $this->getRoom($code);
+                $game = $room['game'] ?? null;
+
+                if (
+                    $game === null
+                    || $game['status'] !== 'in_progress'
+                    || $game['current_phase'] !== 'night'
+                    || $game['phase_end_time'] === null
+                    || $game['phase_end_time'] !== $expectedEndTime
+                ) {
+                    throw ValidationException::withMessages([
+                        'action' => 'ไม่ใช่ช่วงกลางคืนปัจจุบัน กรุณารีเฟรช',
+                    ]);
+                }
+
+                if (now()->gte(
+                    \Carbon\CarbonImmutable::parse($game['phase_end_time'])
+                )) {
+                    throw ValidationException::withMessages([
+                        'action' => 'หมดเวลาส่งคำสั่งแล้ว',
+                    ]);
+                }
+
+                $players = collect($game['players']);
+                $actor = $players->firstWhere('player_uuid', $playerUuid);
+                $target = $players->firstWhere('player_uuid', $targetUuid);
+
+                abort_unless(
+                    $actor !== null
+                    && $actor['role'] === 'seer'
+                    && !($actor['has_left'] ?? false),
+                    403,
+                    'คุณไม่มีสิทธิ์ใช้คำสั่ง Seer'
+                );
+
+                if (
+                    $target === null
+                    || ($target['has_left'] ?? false)
+                ) {
+                    throw ValidationException::withMessages([
+                        'action' => 'เป้าหมายไม่ถูกต้อง',
+                    ]);
+                }
+
+                $used = $game['seer_checks_used'][$playerUuid] ?? 0;
+                $limit = $game['config']['seer_checks_limit'];
+
+                if (!RoleAbility::canSeerCheck(
+                    $actor['is_alive'],
+                    $target['is_alive'],
+                    $used,
+                    $limit
+                )) {
+                    throw ValidationException::withMessages([
+                        'action' => 'ตรวจไม่ได้: ผู้เล่นเสียชีวิต หรือใช้สิทธิ์ครบแล้ว',
+                    ]);
+                }
+
+                $game['night_actions'][$playerUuid] = [
+                    'role' => 'seer',
+                    'target_id' => $targetUuid,
+                ];
+
+                $room['game'] = $game;
+
+                $this->saveGameRoom($room, [
+                    'voter_uuid' => $playerUuid,
+                    'target_uuid' => $targetUuid,
+                    'action_type' => 'seer_check',
+                ]);
+            });
+    }
+
+    public function finishNight(
+        string $code,
+        string $playerUuid,
+        string $expectedEndTime
+    ): void {
+        $code = strtoupper(trim($code));
+
+        Cache::store('file')->lock('room-lock:' . $code, 10)
+            ->block(3, function () use (
+                $code,
+                $playerUuid,
+                $expectedEndTime
+            ) {
+                $room = $this->getRoom($code);
+                $game = $room['game'] ?? null;
+
+                abort_if($game === null, 404, 'ยังไม่มีเกม');
+
+                abort_unless(
+                    collect($room['players'])
+                        ->contains('player_uuid', $playerUuid),
+                    403,
+                    'คุณไม่ได้อยู่ในห้องนี้'
+                );
+
+                if (
+                    $game['status'] !== 'in_progress'
+                    || $game['current_phase'] !== 'night'
+                    || $game['phase_end_time'] === null
+                    || $game['phase_end_time'] !== $expectedEndTime
+                ) {
+                    return;
+                }
+
+                if (now()->lt(
+                    \Carbon\CarbonImmutable::parse($game['phase_end_time'])
+                )) {
+                    throw ValidationException::withMessages([
+                        'game' => 'ยังไม่หมดเวลากลางคืน',
+                    ]);
+                }
+
+                $record = Room::where('room_code', $code)->firstOrFail();
+
+                $uuidById = $record->players()
+                    ->pluck('player_uuid', 'player_id');
+
+                $actions = VoteAction::where(
+                    'rooms_room_id',
+                    $record->room_id
+                )
+                    ->where('phase_number', $game['current_round'])
+                    ->where('phase_type', 'night')
+                    ->whereIn('action_type', [
+                        'werewolf_kill',
+                        'seer_check',
+                    ])
+                    ->orderBy('vote_id')
+                    ->get();
+
+                $players = collect($game['players'])
+                    ->keyBy('player_uuid');
+
+                $queue = new ActionQueue();
+
+                // โหลดเฉพาะคำสั่งที่ผู้ใช้และเป้าหมายยังมีสิทธิ์
+                foreach ($actions as $action) {
+                    $actorUuid = $uuidById->get($action->players_voter_id);
+                    $targetUuid = $uuidById->get($action->players_target_id);
+
+                    $actor = $players->get($actorUuid);
+                    $target = $players->get($targetUuid);
+
+                    if (
+                        $actor === null
+                        || $target === null
+                        || !$actor['is_alive']
+                        || !$target['is_alive']
+                        || ($actor['has_left'] ?? false)
+                        || ($target['has_left'] ?? false)
+                    ) {
+                        continue;
+                    }
+
+                    if (
+                        $action->action_type === 'werewolf_kill'
+                        && $actor['role'] === 'werewolf'
+                        && RoleAbility::canWerewolfKill(
+                            $actor['is_alive'],
+                            $target['is_alive'],
+                            $target['role']
+                        )
+                    ) {
+                        $queue->addNightAction(
+                            $actorUuid,
+                            'werewolf',
+                            $targetUuid
+                        );
+                    }
+
+                    if (
+                        $action->action_type === 'seer_check'
+                        && $actor['role'] === 'seer'
+                    ) {
+                        $used = $game['seer_checks_used'][$actorUuid] ?? 0;
+                        $limit = $game['config']['seer_checks_limit'];
+
+                        // ป้องกันบันทึกผลซ้ำของ Seer ในรอบเดียวกัน
+                        $alreadyResolved = collect(
+                            $game['seer_results'][$actorUuid] ?? []
+                        )->contains('round', $game['current_round']);
+
+                        if (
+                            !$alreadyResolved
+                            && RoleAbility::canSeerCheck(
+                                $actor['is_alive'],
+                                $target['is_alive'],
+                                $used,
+                                $limit
+                            )
+                        ) {
+                            $game['seer_results'][$actorUuid][] = [
+                                'round' => $game['current_round'],
+                                'target_name' => $target['name'],
+                                'is_werewolf' =>
+                                    RoleAbility::resolveSeerCheck(
+                                        $target['role']
+                                    ),
+                            ];
+
+                            $game['seer_checks_used'][$actorUuid] = $used + 1;
+                        }
+                    }
+                }
+
+                $killedUuid = RoleAbility::resolveNightKill(
+                    $queue->getWerewolfVotes()
+                );
+
+                $game['night_result'] = [
+                    'round' => $game['current_round'],
+                    'killed_uuid' => $killedUuid,
+                ];
+
+                if ($killedUuid !== null) {
+                    foreach ($game['players'] as &$player) {
+                        if ($player['player_uuid'] === $killedUuid) {
+                            $player['is_alive'] = false;
+                            break;
+                        }
+                    }
+
+                    unset($player);
+                }
+
+                $game['winner'] = RoleAbility::checkWinCondition(
+                    $game['players']
+                );
+
+                $game['night_actions'] = [];
+
+                if ($game['winner'] !== null) {
+                    $game['status'] = 'finished';
+                    $game['current_phase'] = PhaseManager::PHASE_GAME_OVER;
+                    $game['phase_end_time'] = null;
+                    $room['status'] = 'ended';
+                } else {
+                    $game['current_round']++;
+                    $game['current_phase'] =
+                        PhaseManager::PHASE_DAY_DISCUSSION;
+
+                    $game['phase_end_time'] = now()
+                        ->addSeconds($game['config']['day_discussion_sec'])
+                        ->toIso8601String();
+
+                    $room['status'] = 'day_discussion';
                 }
 
                 $room['game'] = $game;
