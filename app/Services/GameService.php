@@ -35,6 +35,10 @@ class GameService
                 'name' => $player['name'],
                 'is_alive' => true,
                 'role' => $roles[$player['player_uuid']],
+                'is_connected' => true,
+                'disconnected_at' => null,
+                'reconnect_deadline' => null,
+                'has_left' => false,
             ],
             $room['players']
         );

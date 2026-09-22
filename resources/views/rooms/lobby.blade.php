@@ -7,6 +7,11 @@
 <body>
     <h1>Room {{ $room['code'] }}</h1>
 
+
+    @if (session('success'))
+        <p>{{ session('success') }}</p>
+    @endif
+
     <p>Status: {{ $room['status'] }}</p>
     <p>
         ระดับ:

@@ -66,7 +66,17 @@ Route::post(
     [GameController::class, 'finishVoting']
 )->name('games.finish-voting');
 
+//disconnect
+Route::post(
+    '/rooms/{code}/game/debug-disconnect',
+    [GameController::class, 'disconnectForDebug']
+)->name('games.debug-disconnect');
 
+//le3ave
+Route::post(
+    '/rooms/{code}/game/leave',
+    [GameController::class, 'leaveGame']
+)->name('games.leave');
 
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::view('dashboard', 'dashboard')->name('dashboard');

@@ -5,6 +5,10 @@
     <title>เกมห้อง {{ $game['room_code'] }}</title>
 </head>
 <body>
+
+
+
+
     <h1>เกมห้อง {{ $game['room_code'] }}</h1>
 
     <p>
@@ -36,7 +40,7 @@
     <h2>ผู้เล่น</h2>
 
     <ul>
-    @foreach ($game['players'] as $player)
+        @foreach ($game['players'] as $player)
             <li>
                 {{ $player['name'] }}
 
@@ -44,7 +48,13 @@
                     <strong> (คุณ)</strong>
                 @endif
 
-                — {{ $player['is_alive'] ? 'มีชีวิต' : 'เสียชีวิต' }}
+                @if ($player['has_left'])
+                    — ออกจากเกมแล้ว
+                @elseif (!$player['is_alive'])
+                    — เสียชีวิต
+                @else
+                    — มีชีวิต
+                @endif
             </li>
         @endforeach
     </ul>
@@ -128,7 +138,7 @@
                 <option value="">เลือกผู้เล่น</option>
 
                 @foreach ($game['players'] as $player)
-                    @if ($player['is_alive'])
+                    @if ($player['is_alive'] && !$player['has_left'])
                         <option
                             value="{{ $player['player_uuid'] }}"
                             @selected($game['my_vote'] === $player['player_uuid'])
@@ -194,6 +204,15 @@
         </form>
     @endif
 
+
+    <form
+        method="POST"
+        action="{{ route('games.leave', ['code' => $game['room_code']]) }}"
+        onsubmit="return confirm('ออกถาวรจากเกมนี้? คุณจะกลับเข้าห้องเดิมไม่ได้');"
+    >
+        @csrf
+        <button type="submit">ออกจากเกมถาวร</button>
+    </form>
 
     @if ($game['phase_end_time'] !== null)
         <script>

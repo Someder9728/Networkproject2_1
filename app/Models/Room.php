@@ -14,6 +14,7 @@ class Room extends Model
         'room_status',
         'room_phase_end_time',
         'difficulty',
+        'game_uuid',
     ];
 
     protected function casts(): array
