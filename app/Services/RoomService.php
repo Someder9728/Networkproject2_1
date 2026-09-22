@@ -742,15 +742,15 @@ class RoomService
                     $game['night_event'] = [
                     'night_round' => $game['current_round'],
                     'applies_to_round' => $game['current_round'] + 1,
-                    // 'event' => RandomEvent::random(
-                    //     count($game['players']),
-                    //     $game['difficulty']
-                    // ),
-                    'event' => RandomEvent::get(
-                        'short_discussion',
-                        $game['difficulty'],
-                        count($game['players'])
+                    'event' => RandomEvent::random(
+                        count($game['players']),
+                        $game['difficulty']
                     ),
+                    // 'event' => RandomEvent::get(
+                    //     'short_discussion',
+                    //     $game['difficulty'],
+                    //     count($game['players'])
+                    // ),
                 ];
                 }
 
