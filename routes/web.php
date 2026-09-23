@@ -66,11 +66,11 @@ Route::post(
     [GameController::class, 'finishVoting']
 )->name('games.finish-voting');
 
-//disconnect
-Route::post(
-    '/rooms/{code}/game/debug-disconnect',
-    [GameController::class, 'disconnectForDebug']
-)->name('games.debug-disconnect');
+//disconnect for debug
+// Route::post(
+//     '/rooms/{code}/game/debug-disconnect',
+//     [GameController::class, 'disconnectForDebug']
+// )->name('games.debug-disconnect');
 
 //le3ave
 Route::post(

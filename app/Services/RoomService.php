@@ -13,6 +13,9 @@ use Illuminate\Support\Facades\DB;
 use App\Models\VoteAction;
 use App\GameLogic\RandomEvent;
 use App\GameLogic\GameConfiguration;
+use App\GameLogic\GameEngine;
+use App\Exceptions\GameSnapshotUnavailableException;
+
 
 class RoomService
 {
@@ -72,12 +75,12 @@ class RoomService
             $record = Room::where('room_code', $code)->firstOrFail();
             $game = $record->game_snapshot;
 
-            abort_if(
+            if (
                 !is_array($game)
-                || ($game['game_uuid'] ?? null) !== $room['game_uuid'],
-                409,
-                'เกมนี้ยังไม่มี Snapshot ที่ใช้งานได้'
-            );
+                || ($game['game_uuid'] ?? null) !== $room['game_uuid']
+            ) {
+                throw new GameSnapshotUnavailableException($code);
+            }
 
             $room['game'] = $game;
 
@@ -112,11 +115,14 @@ class RoomService
 
                 abort_if($room === null, 404, 'ไม่พบห้อง');
 
-                abort_unless(
-                    $room['host_uuid'] === $playerUuid,
-                    403,
-                    'เฉพาะ Host เท่านั้นที่เริ่มเกมได้'
-                );
+                if ($playerUuid !== null) {
+                    abort_unless(
+                        collect($room['players'])
+                            ->contains('player_uuid', $playerUuid),
+                        403,
+                        'คุณไม่ได้อยู่ในห้องนี้'
+                    );
+                }
 
                 if (
                     $room['status'] !== 'waiting'
@@ -154,7 +160,14 @@ class RoomService
         $isMember = collect($room['players'])
             ->contains('player_uuid', $playerUuid);
 
-        abort_unless($isMember, 403, 'คุณไม่ได้อยู่ในห้องนี้');
+        if ($playerUuid !== null) {
+            abort_unless(
+                collect($room['players'])
+                    ->contains('player_uuid', $playerUuid),
+                403,
+                'คุณไม่ได้อยู่ในห้องนี้'
+            );
+        }
 
         $game = $room['game'] ?? null;
 
@@ -401,11 +414,14 @@ class RoomService
 
                 abort_if($room === null, 404, 'ไม่พบห้อง');
 
-                abort_unless(
-                    $room['host_uuid'] === $playerUuid,
-                    403,
-                    'เฉพาะ Host เท่านั้น'
-                );
+                if ($playerUuid !== null) {
+                    abort_unless(
+                        collect($room['players'])
+                            ->contains('player_uuid', $playerUuid),
+                        403,
+                        'คุณไม่ได้อยู่ในห้องนี้'
+                    );
+                }
 
                 $game = $room['game'] ?? null;
 
@@ -437,9 +453,9 @@ class RoomService
             });
     }
 
-    public function finishDiscussion(
+    private function resolveDiscussion(
         string $code,
-        string $playerUuid,
+        ?string $playerUuid,
         string $expectedEndTime
     ): void {
         $code = strtoupper($code);
@@ -457,12 +473,14 @@ class RoomService
 
                 abort_if($room === null, 404, 'ไม่พบห้อง');
 
-                abort_unless(
-                    collect($room['players'])
-                        ->contains('player_uuid', $playerUuid),
-                    403,
-                    'คุณไม่ได้อยู่ในห้องนี้'
-                );
+                if ($playerUuid !== null) {
+                    abort_unless(
+                        collect($room['players'])
+                            ->contains('player_uuid', $playerUuid),
+                        403,
+                        'คุณไม่ได้อยู่ในห้องนี้'
+                    );
+                }
 
                 $game = $room['game'] ?? null;
 
@@ -517,91 +535,73 @@ class RoomService
         string $targetUuid,
         string $expectedEndTime
     ): void {
-        $code = strtoupper($code);
-        $cache = Cache::store('file');
+        $code = strtoupper(trim($code));
 
-        $cache->lock('room-lock:' . $code, 5)
+        Cache::store('file')->lock('room-lock:' . $code, 10)
             ->block(3, function () use (
-                $cache,
                 $code,
                 $playerUuid,
                 $targetUuid,
                 $expectedEndTime
             ) {
-                $key = 'room:' . $code;
                 $room = $this->getRoom($code);
-
-                abort_if($room === null, 404, 'ไม่พบห้อง');
-
                 $game = $room['game'] ?? null;
 
+                abort_if($game === null, 404, 'ยังไม่มีเกม');
+
+                if ($playerUuid !== null) {
+                abort_unless(
+                    collect($room['players'])
+                        ->contains('player_uuid', $playerUuid),
+                    403,
+                    'คุณไม่ได้อยู่ในห้องนี้'
+                );
+            }
+
                 if (
-                    $game === null
-                    || $game['status'] !== 'in_progress'
-                    || $game['current_phase'] !== 'day_voting'
-                    || $game['phase_end_time'] === null
+                    $game['phase_end_time'] === null
                     || $game['phase_end_time'] !== $expectedEndTime
                 ) {
                     throw ValidationException::withMessages([
-                        'vote' => 'ไม่ใช่ช่วงโหวตปัจจุบัน กรุณารีเฟรช',
+                        'vote' => 'ช่วงเวลาเกมเปลี่ยนแล้ว กรุณารีเฟรช',
                     ]);
                 }
 
-                if (now()->gte(
-                    \Carbon\CarbonImmutable::parse($game['phase_end_time'])
-                )) {
-                    throw ValidationException::withMessages([
-                        'vote' => 'หมดเวลาโหวตแล้ว',
-                    ]);
-                }
-
-                $players = collect($game['players']);
-                $actor = $players->firstWhere('player_uuid', $playerUuid);
-                $target = $players->firstWhere('player_uuid', $targetUuid);
-
-                abort_if($actor === null, 403, 'คุณไม่ได้อยู่ในเกมนี้');
-
-                if (!$actor['is_alive']) {
-                    throw ValidationException::withMessages([
-                        'vote' => 'ผู้เล่นที่ตายแล้วโหวตไม่ได้',
-                    ]);
-                }
-
-                if ($target === null || !$target['is_alive']) {
-                    throw ValidationException::withMessages([
-                        'vote' => 'ต้องเลือกผู้เล่นที่ยังมีชีวิตในเกมนี้',
-                    ]);
-                }
-
-                $queue = new ActionQueue();
-
-                // โหลดคะแนนเดิมกลับเข้า Queue
-                $storedVotes = $this->loadDayVotes(
+                // โหลดเฉพาะคะแนนของวันและรอบโหวตปัจจุบัน
+                $game['day_votes'] = $this->loadDayVotes(
                     $code,
                     $game['current_round'],
                     $game['players'],
                     $game['ballot_number'] ?? 1
                 );
 
-                foreach ($storedVotes as $voter => $targetId) {
-                    $queue->addDayVote($voter, $targetId);
+                $engine = new GameEngine($game);
+
+                $result = $engine->handlePlayerAction(
+                    $playerUuid,
+                    'vote_lynch',
+                    $targetUuid
+                );
+
+                if ($result['status'] !== 'success') {
+                    throw ValidationException::withMessages([
+                        'vote' => $result['message'],
+                    ]);
                 }
 
-                $queue->addDayVote($playerUuid, $targetUuid);
-
-                $game['day_votes'] = $queue->getDayVotes();
-                $room['game'] = $game;
+                $room['game'] = $engine->getGameState();
 
                 $this->saveGameRoom($room, [
                     'voter_uuid' => $playerUuid,
                     'target_uuid' => $targetUuid,
+                    'action_type' => 'vote_lynch',
                 ]);
             });
     }
 
-    public function finishVoting(
+    private function resolveVoting(
         string $code,
-        string $playerUuid,
+        ?string $playerUuid,
         string $expectedEndTime
     ): void {
         $code = strtoupper($code);
@@ -623,13 +623,15 @@ class RoomService
 
                 abort_if($game === null, 404, 'ยังไม่มีเกม');
 
-                abort_unless(
-                    collect($game['players'])
-                    ->filter(fn (array $player) => !($player['has_left'] ?? false))
-                    ->contains('player_uuid', $playerUuid),
-                    403,
-                    'คุณไม่ได้อยู่ในเกมนี้'
-                );
+                if ($playerUuid !== null) {
+                    abort_unless(
+                        collect($game['players'])
+                        ->filter(fn (array $player) => !($player['has_left'] ?? false))
+                        ->contains('player_uuid', $playerUuid),
+                        403,
+                        'คุณไม่ได้อยู่ในเกมนี้'
+                    );
+                }
 
                 // คำขอซ้ำหรือมาจากช่วงโหวตเก่า: ไม่ทำซ้ำ
                 if (
@@ -648,36 +650,23 @@ class RoomService
                         'game' => 'ยังไม่หมดเวลาโหวต',
                     ]);
                 }
-
-                $votes = $this->loadDayVotes(
+                // 
+                $game['day_votes'] = $this->loadDayVotes(
                     $code,
                     $game['current_round'],
                     $game['players'],
                     $game['ballot_number'] ?? 1
                 );
 
-                $ballotNumber = $game['ballot_number'] ?? 1;
+                $engine = new GameEngine($game);
+                $outcome = $engine->resolveDayVoteOutcome();
+
                 $dayConfig = $game['day_config'] ?? $game['config'];
-                $rule = $dayConfig['tie_breaking'];
 
-                $counts = array_count_values(array_values($votes));
-
-                $isTie = false;
-
-                if ($counts !== []) {
-                    $highest = max($counts);
-                    $topTargets = array_keys($counts, $highest);
-
-                    $isTie = count($topTargets) > 1;
-                }
-
-                if (
-                    $rule === 'revote_once'
-                    && $isTie
-                    && $ballotNumber === 1
-                ) {
+                if ($outcome['requires_revote']) {
                     $game['ballot_number'] = 2;
                     $game['day_votes'] = [];
+
                     $game['phase_end_time'] = now()
                         ->addSeconds($dayConfig['day_voting_sec'])
                         ->toIso8601String();
@@ -685,15 +674,14 @@ class RoomService
                     $room['game'] = $game;
                     $this->saveGameRoom($room);
 
-                    return $room;
+                    return;
                 }
 
-                $targetUuid = $votes === []
-                    ? null
-                    : RoleAbility::resolveDayVote(
-                        $votes,
-                        $rule === 'revote_once' ? 'no_death' : $rule
-                    );
+                $targetUuid = $outcome['eliminated_uuid'];
+
+                
+
+
 
                 $game['vote_result'] = [
                     'round' => $game['current_round'],
@@ -1015,63 +1003,41 @@ class RoomService
                 $room = $this->getRoom($code);
                 $game = $room['game'] ?? null;
 
+                abort_if($game === null, 404, 'ยังไม่มีเกม');
+
+                if ($playerUuid !== null) {
+                    abort_unless(
+                        collect($room['players'])
+                            ->contains('player_uuid', $playerUuid),
+                        403,
+                        'คุณไม่ได้อยู่ในห้องนี้'
+                    );
+                }
+
                 if (
-                    $game === null
-                    || $game['status'] !== 'in_progress'
-                    || $game['current_phase'] !== 'night'
-                    || $game['phase_end_time'] === null
+                    $game['phase_end_time'] === null
                     || $game['phase_end_time'] !== $expectedEndTime
                 ) {
                     throw ValidationException::withMessages([
-                        'action' => 'ไม่ใช่ช่วงกลางคืนปัจจุบัน กรุณารีเฟรช',
+                        'action' => 'ช่วงเวลาเกมเปลี่ยนแล้ว กรุณารีเฟรช',
                     ]);
                 }
 
-                if (now()->gte(
-                    \Carbon\CarbonImmutable::parse($game['phase_end_time'])
-                )) {
-                    throw ValidationException::withMessages([
-                        'action' => 'หมดเวลาส่งคำสั่งแล้ว',
-                    ]);
-                }
+                $engine = new GameEngine($game);
 
-                $players = collect($game['players']);
-                $actor = $players->firstWhere('player_uuid', $playerUuid);
-                $target = $players->firstWhere('player_uuid', $targetUuid);
-
-                abort_unless(
-                    $actor !== null
-                    && $actor['role'] === 'werewolf'
-                    && !($actor['has_left'] ?? false),
-                    403,
-                    'คุณไม่มีสิทธิ์ใช้คำสั่งหมาป่า'
+                $result = $engine->handlePlayerAction(
+                    $playerUuid,
+                    'werewolf_kill',
+                    $targetUuid
                 );
 
-                if (
-                    $target === null
-                    || ($target['has_left'] ?? false)
-                ) {
+                if ($result['status'] !== 'success') {
                     throw ValidationException::withMessages([
-                        'action' => 'เป้าหมายไม่ถูกต้อง',
+                        'action' => $result['message'],
                     ]);
                 }
 
-                if (!RoleAbility::canWerewolfKill(
-                    $actor['is_alive'],
-                    $target['is_alive'],
-                    $target['role']
-                )) {
-                    throw ValidationException::withMessages([
-                        'action' => 'เลือกได้เฉพาะคนที่ยังมีชีวิตและไม่ใช่หมาป่า โดยผู้เลือกต้องยังมีชีวิต',
-                    ]);
-                }
-
-                $game['night_actions'][$playerUuid] = [
-                    'role' => 'werewolf',
-                    'target_id' => $targetUuid,
-                ];
-
-                $room['game'] = $game;
+                $room['game'] = $engine->getGameState();
 
                 $this->saveGameRoom($room, [
                     'voter_uuid' => $playerUuid,
@@ -1099,67 +1065,43 @@ class RoomService
                 $room = $this->getRoom($code);
                 $game = $room['game'] ?? null;
 
+                abort_if($game === null, 404, 'ยังไม่มีเกม');
+
+                // ตรวจตัวตนจากสมาชิกปัจจุบันของห้อง
+                if ($playerUuid !== null) {
+                    abort_unless(
+                        collect($room['players'])
+                            ->contains('player_uuid', $playerUuid),
+                        403,
+                        'คุณไม่ได้อยู่ในห้องนี้'
+                    );
+                }
+
+                // ป้องกันคำสั่งจากหน้าเกมของรอบเก่า
                 if (
-                    $game === null
-                    || $game['status'] !== 'in_progress'
-                    || $game['current_phase'] !== 'night'
-                    || $game['phase_end_time'] === null
+                    $game['phase_end_time'] === null
                     || $game['phase_end_time'] !== $expectedEndTime
                 ) {
                     throw ValidationException::withMessages([
-                        'action' => 'ไม่ใช่ช่วงกลางคืนปัจจุบัน กรุณารีเฟรช',
+                        'action' => 'ช่วงเวลาเกมเปลี่ยนแล้ว กรุณารีเฟรช',
                     ]);
                 }
 
-                if (now()->gte(
-                    \Carbon\CarbonImmutable::parse($game['phase_end_time'])
-                )) {
-                    throw ValidationException::withMessages([
-                        'action' => 'หมดเวลาส่งคำสั่งแล้ว',
-                    ]);
-                }
+                $engine = new GameEngine($game);
 
-                $players = collect($game['players']);
-                $actor = $players->firstWhere('player_uuid', $playerUuid);
-                $target = $players->firstWhere('player_uuid', $targetUuid);
-
-                abort_unless(
-                    $actor !== null
-                    && $actor['role'] === 'seer'
-                    && !($actor['has_left'] ?? false),
-                    403,
-                    'คุณไม่มีสิทธิ์ใช้คำสั่ง Seer'
+                $result = $engine->handlePlayerAction(
+                    $playerUuid,
+                    'seer_check',
+                    $targetUuid
                 );
 
-                if (
-                    $target === null
-                    || ($target['has_left'] ?? false)
-                ) {
+                if ($result['status'] !== 'success') {
                     throw ValidationException::withMessages([
-                        'action' => 'เป้าหมายไม่ถูกต้อง',
+                        'action' => $result['message'],
                     ]);
                 }
 
-                $used = $game['seer_checks_used'][$playerUuid] ?? 0;
-                $limit = $game['config']['seer_checks_limit'];
-
-                if (!RoleAbility::canSeerCheck(
-                    $actor['is_alive'],
-                    $target['is_alive'],
-                    $used,
-                    $limit
-                )) {
-                    throw ValidationException::withMessages([
-                        'action' => 'ตรวจไม่ได้: ผู้เล่นเสียชีวิต หรือใช้สิทธิ์ครบแล้ว',
-                    ]);
-                }
-
-                $game['night_actions'][$playerUuid] = [
-                    'role' => 'seer',
-                    'target_id' => $targetUuid,
-                ];
-
-                $room['game'] = $game;
+                $room['game'] = $engine->getGameState();
 
                 $this->saveGameRoom($room, [
                     'voter_uuid' => $playerUuid,
@@ -1169,9 +1111,9 @@ class RoomService
             });
     }
 
-    public function finishNight(
+    private function resolveNight(
         string $code,
-        string $playerUuid,
+        ?string $playerUuid,
         string $expectedEndTime
     ): void {
         $code = strtoupper(trim($code));
@@ -1187,12 +1129,14 @@ class RoomService
 
                 abort_if($game === null, 404, 'ยังไม่มีเกม');
 
-                abort_unless(
-                    collect($room['players'])
-                        ->contains('player_uuid', $playerUuid),
-                    403,
-                    'คุณไม่ได้อยู่ในห้องนี้'
-                );
+                if ($playerUuid !== null) {
+                    abort_unless(
+                        collect($room['players'])
+                            ->contains('player_uuid', $playerUuid),
+                        403,
+                        'คุณไม่ได้อยู่ในห้องนี้'
+                    );
+                }
 
                 if (
                     $game['status'] !== 'in_progress'
@@ -1232,7 +1176,8 @@ class RoomService
                 $players = collect($game['players'])
                     ->keyBy('player_uuid');
 
-                $queue = new ActionQueue();
+                $validWerewolfActions = [];
+                $validSeerActions = [];
 
                 // โหลดเฉพาะคำสั่งที่ผู้ใช้และเป้าหมายยังมีสิทธิ์
                 foreach ($actions as $action) {
@@ -1262,51 +1207,39 @@ class RoomService
                             $target['role']
                         )
                     ) {
-                        $queue->addNightAction(
-                            $actorUuid,
-                            'werewolf',
-                            $targetUuid
-                        );
+                        $validWerewolfActions[$actorUuid] = [
+                            'role' => 'werewolf',
+                            'target_id' => $targetUuid,
+                        ];
                     }
 
                     if (
                         $action->action_type === 'seer_check'
                         && $actor['role'] === 'seer'
                     ) {
-                        $used = $game['seer_checks_used'][$actorUuid] ?? 0;
-                        $limit = $game['config']['seer_checks_limit'];
-
-                        // ป้องกันบันทึกผลซ้ำของ Seer ในรอบเดียวกัน
-                        $alreadyResolved = collect(
-                            $game['seer_results'][$actorUuid] ?? []
-                        )->contains('round', $game['current_round']);
-
-                        if (
-                            !$alreadyResolved
-                            && RoleAbility::canSeerCheck(
-                                $actor['is_alive'],
-                                $target['is_alive'],
-                                $used,
-                                $limit
-                            )
-                        ) {
-                            $game['seer_results'][$actorUuid][] = [
-                                'round' => $game['current_round'],
-                                'target_name' => $target['name'],
-                                'is_werewolf' =>
-                                    RoleAbility::resolveSeerCheck(
-                                        $target['role']
-                                    ),
-                            ];
-
-                            $game['seer_checks_used'][$actorUuid] = $used + 1;
-                        }
+                        $validSeerActions[$actorUuid] = [
+                            'role' => 'seer',
+                            'target_id' => $targetUuid,
+                        ];
                     }
                 }
 
-                $killedUuid = RoleAbility::resolveNightKill(
-                    $queue->getWerewolfVotes()
+                $resolutionSnapshot = $game;
+
+                $resolutionSnapshot['night_actions'] = array_replace(
+                    $validWerewolfActions,
+                    $validSeerActions
                 );
+
+                $engine = new GameEngine($resolutionSnapshot);
+
+                $nightOutcome = $engine->resolveNightKillOutcome();
+                $seerOutcome = $engine->resolveSeerOutcome();
+
+                $killedUuid = $nightOutcome['killed_uuid'];
+
+                $game['seer_results'] = $seerOutcome['seer_results'];
+                $game['seer_checks_used'] = $seerOutcome['seer_checks_used'];
 
                 $game['night_result'] = [
                     'round' => $game['current_round'],
@@ -1409,11 +1342,14 @@ class RoomService
                         ->where('player_uuid', $playerUuid)
                         ->first();
 
-                    abort_unless(
-                        $player !== null,
-                        403,
-                        'คุณไม่ได้เป็นสมาชิกห้องนี้'
-                    );
+                    if ($playerUuid !== null) {
+                        abort_unless(
+                            collect($room['players'])
+                                ->contains('player_uuid', $playerUuid),
+                            403,
+                            'คุณไม่ได้อยู่ในห้องนี้'
+                        );
+                    }
 
                     // คำขอซ้ำหลังออกแล้ว ไม่แก้ข้อมูลเพิ่ม
                     if ($player->has_left) {
@@ -1459,6 +1395,66 @@ class RoomService
                     ]);
                 });
             });
+    }
+
+    public function finishDiscussion(
+        string $code,
+        string $playerUuid,
+        string $expectedEndTime
+    ): void {
+        $this->resolveDiscussion($code, $playerUuid, $expectedEndTime);
+    }
+
+    public function finishVoting(
+        string $code,
+        string $playerUuid,
+        string $expectedEndTime
+    ): void {
+        $this->resolveVoting($code, $playerUuid, $expectedEndTime);
+    }
+
+    public function finishNight(
+        string $code,
+        string $playerUuid,
+        string $expectedEndTime
+    ): void {
+        $this->resolveNight($code, $playerUuid, $expectedEndTime);
+    }
+
+    public function advanceExpiredPhase(string $code): void
+    {
+        $room = $this->getRoom($code);
+        $game = $room['game'] ?? null;
+
+        if (
+            $game === null
+            || $game['status'] !== 'in_progress'
+            || $game['phase_end_time'] === null
+        ) {
+            return;
+        }
+
+        $expectedEndTime = $game['phase_end_time'];
+
+        if (now()->lt(
+            \Carbon\CarbonImmutable::parse($expectedEndTime)
+        )) {
+            return;
+        }
+
+        switch ($game['current_phase']) {
+            case 'day_discussion':
+                $this->resolveDiscussion($code, null, $expectedEndTime);
+                break;
+
+            case 'day_voting':
+                $this->resolveVoting($code, null, $expectedEndTime);
+                break;
+
+            case 'night':
+                $this->resolveNight($code, null, $expectedEndTime);
+                break;
+        }
     }
 
 }
