@@ -3,6 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <title>เกมห้อง {{ $game['room_code'] }}</title>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <meta name="room-code" content="{{ $game['room_code'] }}">
+
+    @vite('resources/js/app.js')
 </head>
 <body>
 
@@ -10,6 +14,11 @@
 
 
     <h1>เกมห้อง {{ $game['room_code'] }}</h1>
+
+    <p>
+        Realtime:
+        <span id="realtime-status">ยังไม่เชื่อมต่อ</span>
+    </p>
 
     <p>
         ระดับ:
@@ -473,5 +482,8 @@
             }
         </script>
     @endif
+
+    @include('rooms.chat')
+
 </body>
 </html>

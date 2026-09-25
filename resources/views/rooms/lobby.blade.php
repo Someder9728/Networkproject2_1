@@ -3,9 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <title>Lobby {{ $room['code'] }}</title>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <meta name="room-code" content="{{ $room['code'] }}">
+
+    @vite('resources/js/app.js')
 </head>
 <body>
     <h1>Room {{ $room['code'] }}</h1>
+
+    <p>
+        Realtime:
+        <span id="realtime-status">ยังไม่เชื่อมต่อ</span>
+    </p>
 
 
     @if (session('success'))
@@ -91,5 +100,8 @@
             เข้าหน้าเกม
         </a>
     @endif
+
+    @include('rooms.chat')
+
 </body>
 </html>
