@@ -17,7 +17,8 @@ use App\GameLogic\GameEngine;
 use App\Exceptions\GameSnapshotUnavailableException;
 use App\Events\PhaseChanged;
 use App\Events\RoomUpdated;
-
+use App\Events\NightEventTriggered;
+use App\Events\VoteResult;
 
 class RoomService
 {
@@ -689,10 +690,6 @@ class RoomService
 
                 $targetUuid = $outcome['eliminated_uuid'];
 
-                
-
-
-
                 $game['vote_result'] = [
                     'round' => $game['current_round'],
                     'eliminated_uuid' => $targetUuid,
@@ -776,6 +773,28 @@ class RoomService
 
             $nextState = $this->phaseBroadcastState($game);
 
+            // == เพิ่มเติม == //
+            $previousNightEvent = is_array($previousGame)
+                ? ($previousGame['night_event']['event'] ?? null)
+                : null;
+
+            $nextNightEvent = $game['night_event']['event'] ?? null;
+
+            $nightEventTriggered = $nextNightEvent !== null
+                && $previousNightEvent !== $nextNightEvent;
+
+
+            $previousVoteResult = is_array($previousGame)
+                ? ($previousGame['vote_result'] ?? null)
+                : null;
+
+            $nextVoteResult = $game['vote_result'] ?? null;
+
+            $voteResultTriggered = $nextVoteResult !== null
+                && $previousVoteResult !== $nextVoteResult;
+            
+                // ============ //
+
             $phaseChanged = $previousState !== $nextState;
 
             $membershipChanged = is_array($previousGame)
@@ -844,6 +863,58 @@ class RoomService
                     }
                 });
             }
+
+            // == เพิ่มเติม ==
+            if ($nightEventTriggered) {
+                $roomCode = $room['code'];
+                $gameUuid = $game['game_uuid'];
+                $nightEvent = $game['night_event']['event'];
+                $round = $game['current_round'];
+
+                DB::afterCommit(function () use (
+                    $roomCode,
+                    $gameUuid,
+                    $nightEvent,
+                    $round
+                ) {
+                    try {
+                        NightEventTriggered::dispatch(
+                            $roomCode,
+                            $gameUuid,
+                            $nightEvent,
+                            $round
+                        );
+                    } catch (\Throwable $exception) {
+                        report($exception);
+                    }
+                });
+            }
+
+            if ($voteResultTriggered) {
+                $roomCode = $room['code'];
+                $gameUuid = $game['game_uuid'];
+                $voteResult = $game['vote_result'];
+
+                DB::afterCommit(function () use (
+                    $roomCode,
+                    $gameUuid,
+                    $voteResult
+                ) {
+                    try {
+
+                        VoteResult::dispatch(
+                            $roomCode,
+                            $gameUuid,
+                            $voteResult['eliminated_uuid'],
+                            $voteResult['round']
+                        );
+
+                    } catch (\Throwable $exception) {
+                        report($exception);
+                    }
+                });
+            }
+            // ==============
 
         });
 

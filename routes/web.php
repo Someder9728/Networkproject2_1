@@ -5,6 +5,8 @@ use App\Http\Controllers\RoomController;
 use App\Http\Controllers\GameController;
 use App\Http\Controllers\GameBroadcastAuthController;
 use App\Http\Controllers\ChatController;
+use App\Events\NightEventTriggered;
+use App\Events\VoteResult;
 
 Route::view('/', 'welcome')->name('home');
 
@@ -118,6 +120,39 @@ Route::post('/rooms/{code}/chat', [ChatController::class, 'store'])
 
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::view('dashboard', 'dashboard')->name('dashboard');
+});
+
+// test-night-trigger
+Route::get('/test-night-event', function () {
+    NightEventTriggered::dispatch(
+        'MDG7NU',
+        'test-game-uuid',
+        [
+            'id' => 'blackout',
+        ],
+        1
+    );
+
+    return 'Night event broadcast sent.';
+});
+
+// test-vote
+Route::get('/test-vote-result', function () {
+    VoteResult::dispatch(
+        'MDG7NU',
+        'test-game-uuid',
+        'test-player-uuid',
+        1
+    );
+
+    return 'Vote result broadcast sent.';
+});
+
+Route::get('/debug-player', function () {
+    return response()->json([
+        'session_id' => session()->getId(),
+        'player_uuid' => session('player_uuid'),
+    ]);
 });
 
 require __DIR__.'/settings.php';

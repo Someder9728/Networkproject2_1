@@ -166,6 +166,24 @@ function connectRoom() {
             if (event.room_code === roomCode) {
                 refreshChat();
             }
+        })
+        .listen('.night.event.triggered', (event) => {
+            console.log('[Realtime] Night event triggered:', event);
+
+            window.dispatchEvent(
+                new CustomEvent('night-event-triggered', {
+                    detail: event,
+                })
+            );
+        })
+        .listen('.vote.result', (event) => {
+            console.log('[Realtime] Vote result:', event);
+
+            window.dispatchEvent(
+                new CustomEvent('vote-result', {
+                    detail: event,
+                })
+            );
         });
 
         
