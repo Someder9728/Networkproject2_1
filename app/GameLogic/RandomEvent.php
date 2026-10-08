@@ -24,6 +24,12 @@ class RandomEvent
     {
         return [
             DifficultyConfig::EASY => [
+                'secret_ballot' => [
+                    'name' => 'วันลงคะแนนลับ',
+                    'description' => 'ซ่อนคะแนนระหว่างโหวต เปิดผลรวมเมื่อจบช่วงโหวต',
+                    'phase' => 'day',
+                    'effect' => ['secret_ballot' => true],
+                ],
                 self::EVENT_EXTRA_DISCUSSION => [
                     'name' => 'เวลาอภิปรายเพิ่ม',
                     'description' => 'เพิ่มเวลาพูดคุยอีก 30 วินาที',
@@ -53,6 +59,12 @@ class RandomEvent
             ],
 
             DifficultyConfig::HARD => [
+                'secret_ballot' => [
+                    'name' => 'วันลงคะแนนลับ',
+                    'description' => 'ซ่อนคะแนนระหว่างโหวต เปิดผลรวมเมื่อจบช่วงโหวต',
+                    'phase' => 'day',
+                    'effect' => ['secret_ballot' => true],
+                ],
                 self::EVENT_SHORT_DISCUSSION => [
                     'name' => 'เวลาอภิปรายจำกัด',
                     'description' => 'ลดเวลาพูดคุยลง 30 วินาที',

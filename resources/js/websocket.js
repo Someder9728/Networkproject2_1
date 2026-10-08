@@ -54,6 +54,11 @@ function connectRoom() {
     const secure = import.meta.env.VITE_REVERB_SCHEME === "https";
     const port = Number(import.meta.env.VITE_REVERB_PORT || 8080);
 
+    console.log('REVERB DEBUG', {host:import.meta.env.VITE_REVERB_HOST,
+        port:import.meta.env.VITE_REVERB_PORT,
+        scheme:import.meta.env.VITE_REVERB_SCHEME
+    });
+
     window.Echo = new Echo({
         broadcaster: "reverb",
         key: import.meta.env.VITE_REVERB_APP_KEY,

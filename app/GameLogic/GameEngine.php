@@ -86,7 +86,7 @@ class GameEngine
 
         $requiredPhase = match ($actionType) {
             'day_vote', 'vote_lynch' => 'day_voting',
-            'werewolf_kill', 'seer_check' => 'night',
+            'werewolf_kill', 'seer_check', 'guardian_protect' => 'night',
             default => null,
         };
 
@@ -95,6 +95,12 @@ class GameEngine
             || $this->snapshot['current_phase'] !== $requiredPhase
         ) {
             return $error('คำสั่งไม่ตรงกับ Phase ปัจจุบัน');
+        }
+
+        if ($requiredPhase === 'day_voting' && $targetId === 'skip') {
+            $this->snapshot['day_votes'][$actorId] = 'skip';
+
+            return ['status' => 'success', 'message' => 'บันทึกโหวตข้ามแล้ว'];
         }
 
         $target = $targetId !== null
@@ -109,7 +115,18 @@ class GameEngine
             return $error('ต้องเลือกผู้เล่นที่ยังอยู่ในเกมและมีชีวิต');
         }
 
+        if ($actionType === 'guardian_protect') {
+            if ($actor['role'] !== 'guardian') {
+                return $error('เฉพาะผู้คุ้มกันเท่านั้น');
+            }
+            if (($this->snapshot['guardian_last_targets'][$actorId] ?? null) === $targetId) {
+                return $error('ห้ามป้องกันคนเดิมติดกัน');
+            }
+        }
         if ($actionType === 'werewolf_kill') {
+            if (($this->snapshot['night_rule']['id'] ?? null) === 'peaceful_night') {
+                return $error('คืนสงบ หมาป่าโจมตีไม่ได้');
+            }
             if ($actor['role'] !== RoleAssignment::ROLE_WEREWOLF) {
                 return $error('เฉพาะหมาป่าเท่านั้นที่ใช้คำสั่งนี้ได้');
             }
@@ -224,7 +241,10 @@ class GameEngine
             return 0;
         }
 
-        $deadline = new \DateTimeImmutable($endTime);
+        if (($this->snapshot['match_end_time'] ?? null) !== null && ($this->snapshot['game_mode'] ?? 'normal') === 'short') {
+            $endTime = min(new \DateTimeImmutable($endTime), new \DateTimeImmutable($this->snapshot['match_end_time']));
+        }
+        $deadline = $endTime instanceof \DateTimeImmutable ? $endTime : new \DateTimeImmutable($endTime);
 
         return max(0, $deadline->getTimestamp() - time());
     }
@@ -264,6 +284,11 @@ class GameEngine
         $counts = array_count_values(array_values($votes));
         $highest = max($counts);
         $topTargets = array_keys($counts, $highest);
+
+        // Skip wins ties too: never randomly select a player when skip is tied for first.
+        if (in_array('skip', $topTargets, true)) {
+            return ['requires_revote' => false, 'eliminated_uuid' => null];
+        }
 
         if (
             $rule === 'revote_once'
@@ -347,11 +372,7 @@ class GameEngine
             );
         }
 
-        return [
-            'killed_uuid' => RoleAbility::resolveNightKill(
-                $queue->getWerewolfVotes()
-            ),
-        ];
+        return MatchRules::nightOutcome($this->snapshot, RoleAbility::resolveNightKill($queue->getWerewolfVotes()));
     }
 
     public function resolveSeerOutcome(): array
@@ -410,6 +431,7 @@ class GameEngine
             $results[$actorUuid][] = [
                 'round' => $round,
                 'target_name' => $target['name'],
+                'target_uuid' => $target['player_uuid'],
                 'is_werewolf' => RoleAbility::resolveSeerCheck(
                     $target['role']
                 ),

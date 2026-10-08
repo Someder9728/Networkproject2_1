@@ -3,6 +3,7 @@
 use App\Http\Controllers\ChatController;
 use App\Http\Controllers\GameBroadcastAuthController;
 use App\Http\Controllers\GameController;
+use App\Http\Controllers\MatchController;
 use App\Http\Controllers\RoomController;
 use Illuminate\Support\Facades\Route;
 
@@ -36,6 +37,13 @@ Route::post('/rooms/{code}/leave', [RoomController::class, 'leave'])
 // start
 Route::post('/rooms/{code}/start', [RoomController::class, 'start'])
     ->name('rooms.start');
+
+Route::post('/rooms/{code}/ready', [RoomController::class, 'ready'])->name('rooms.ready');
+Route::post('/rooms/{code}/advance-start', [RoomController::class, 'advanceStart'])->name('rooms.advance-start');
+Route::post('/rooms/{code}/game/skip-discussion', [GameController::class, 'skipDiscussion'])->name('games.skip-discussion');
+
+Route::post('/rooms/{code}/game/guardian-action', [MatchController::class, 'guardian'])->name('games.guardian-action');
+Route::post('/rooms/{code}/game/presence', [MatchController::class, 'presence'])->name('games.presence');
 
 // game
 Route::get('/rooms/{code}/game', [GameController::class, 'show'])
@@ -112,3 +120,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
 });
 
 require __DIR__.'/settings.php';
+
+Route::post('/rooms/{code}/game/trial', [MatchController::class, 'trial'])->name('games.trial');
+
+Route::match(['get', 'post'], '/rooms/{code}/chat/typing', [ChatController::class, 'typing'])->middleware('throttle:game-chat-read');
+Route::post('/rooms/{code}/chat/voice', [ChatController::class, 'voice'])->middleware('throttle:game-chat-send');
+Route::get('/rooms/{code}/chat/{message}/audio', [ChatController::class, 'audio'])->whereNumber('message')->middleware('throttle:game-chat-read')->name('rooms.chat.audio');

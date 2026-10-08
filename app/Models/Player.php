@@ -18,6 +18,7 @@ class Player extends Model
         'is_connected',
         'rooms_room_id',
         'has_left',
+        'is_ready',
     ];
 
     protected $hidden = [
@@ -34,6 +35,7 @@ class Player extends Model
             'is_alive' => 'boolean',
             'is_connected' => 'boolean',
             'has_left' => 'boolean',
+            'is_ready' => 'boolean',
         ];
     }
 

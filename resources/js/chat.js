@@ -1,3 +1,4 @@
+import {initChatExtras} from './chat-extras';
 export function initRoomChat(roomCode, csrfToken, playerName) {
     const form = document.getElementById("chat-form");
 
@@ -21,6 +22,7 @@ export function initRoomChat(roomCode, csrfToken, playerName) {
 
     function setActiveChannel(channel) {
         currentChannel = channel;
+        window.dispatchEvent(new CustomEvent("game:chat-channel", {detail: {channel}}));
 
         channelButtons.forEach((button) => {
             button.classList.toggle(
@@ -37,13 +39,14 @@ export function initRoomChat(roomCode, csrfToken, playerName) {
     function render() {
         const channel = getCurrentChannel();
 
+        const existingAudio = new Map([...list.querySelectorAll('audio[data-message-id]')].map(audio => [audio.dataset.messageId, audio]));
         list.replaceChildren();
 
         for (const message of channel?.messages ?? []) {
             const item = document.createElement("li");
             const bubble = document.createElement("div");
 
-            const isMine = message.sender_name === playerName;
+            const isMine = (message.is_mine ?? (message.sender_name === playerName));
 
             item.className = isMine
                 ? "chat-message-row mine"
@@ -65,6 +68,15 @@ export function initRoomChat(roomCode, csrfToken, playerName) {
 
             bubble.className = "chat-message-bubble";
             bubble.textContent = message.content;
+            if (message.audio_url) {
+                const audio = existingAudio.get(String(message.id)) ?? document.createElement('audio');
+                audio.dataset.messageId = String(message.id);
+                audio.controls = true;
+                audio.preload = 'none';
+                if (audio.getAttribute('src') !== message.audio_url) audio.src = message.audio_url;
+                audio.style.cssText = 'max-width:100%;width:240px;height:36px;display:block;margin-top:6px';
+                bubble.append(audio);
+            }
 
             item.appendChild(bubble);
             list.appendChild(item);
@@ -116,6 +128,7 @@ export function initRoomChat(roomCode, csrfToken, playerName) {
             }
 
             channels = data.channels ?? [];
+            window.dispatchEvent(new CustomEvent("game:chat-update", {detail: {channels, currentChannel}}));
 
             const currentChannelExists = channels.some(
                 (channel) => channel.name === currentChannel,
@@ -215,7 +228,7 @@ export function initRoomChat(roomCode, csrfToken, playerName) {
 
             input.value = "";
 
-            // await refresh();
+            await refresh(false);
         } catch (error) {
             feedback.textContent = error.message;
         } finally {
@@ -227,5 +240,6 @@ export function initRoomChat(roomCode, csrfToken, playerName) {
 
     setActiveChannel("all");
 
+    initChatExtras({form, input, url, csrfToken, channel: () => currentChannel, canSend: () => !input.disabled, refresh});
     return refresh;
 }

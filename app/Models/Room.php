@@ -2,11 +2,14 @@
 
 namespace App\Models;
 
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * @property array<string, mixed>|null $game_snapshot
+ * @property string $game_mode
+ * @property CarbonImmutable|null $start_countdown_at
  */
 class Room extends Model
 {
@@ -23,6 +26,9 @@ class Room extends Model
         'difficulty',
         'game_uuid',
         'game_snapshot',
+        'player_limit',
+        'game_mode',
+        'start_countdown_at',
     ];
 
     /**
@@ -33,6 +39,8 @@ class Room extends Model
         return [
             'room_phase_end_time' => 'datetime',
             'game_snapshot' => 'array',
+            'player_limit' => 'integer',
+            'start_countdown_at' => 'immutable_datetime',
         ];
     }
 

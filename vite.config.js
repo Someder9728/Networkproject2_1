@@ -21,16 +21,11 @@ export default defineConfig({
         tailwindcss(),
     ]),
     server: {
-        cors: true,
-        watch: {
-            ignored: [
-                '**/.agents/**',
-                '**/.claude/**',
-                '**/.cursor/**',
-                '**/.junie/**',
-                '**/storage/framework/views/**',
-                '**/vendor/**',
-            ],
+        host: '0.0.0.0',
+        port: 5173,
+        hmr: {
+            host: '192.168.1.41',
+            port: 5173,
         },
     },
 });

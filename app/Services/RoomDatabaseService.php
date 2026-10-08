@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\GameLogic\DifficultyConfig;
 use App\Models\Player;
 use App\Models\Room;
 use App\Support\RoomLock;
@@ -14,12 +15,18 @@ class RoomDatabaseService
     public function create(
         string $hostName,
         string $hostUuid,
-        string $difficulty
+        string $difficulty,
+        int $playerLimit = 4,
+        string $gameMode = 'normal'
     ): Room {
+        abort_unless(in_array($playerLimit, DifficultyConfig::supportedPlayerCounts(), true) && in_array($gameMode, ['normal', 'short'], true), 422, 'การตั้งค่าห้องไม่ถูกต้อง');
+
         return DB::transaction(function () use (
             $hostName,
             $hostUuid,
-            $difficulty
+            $difficulty,
+            $playerLimit,
+            $gameMode
         ) {
             if (
                 Player::where('player_uuid', $hostUuid)
@@ -39,6 +46,8 @@ class RoomDatabaseService
                 'room_code' => $code,
                 'room_status' => 'waiting',
                 'difficulty' => $difficulty,
+                'player_limit' => $playerLimit,
+                'game_mode' => $gameMode,
             ]);
 
             $room->players()->create([
@@ -76,11 +85,16 @@ class RoomDatabaseService
             'status' => $room->room_status,
             'difficulty' => $room->difficulty,
             'host_uuid' => $host?->player_uuid,
+            'player_limit' => $room->player_limit,
+            'game_mode' => $room->game_mode,
+            'start_countdown_at' => $room->start_countdown_at?->toIso8601String(),
+            'server_time' => now()->toIso8601String(),
             'players' => $room->players->map(
                 fn (Player $player) => [
                     'player_id' => $player->player_id,
                     'player_uuid' => $player->player_uuid,
                     'name' => $player->player_name,
+                    'is_ready' => $player->is_ready,
                 ]
             )->all(),
             'game_uuid' => $room->game_uuid,
@@ -146,11 +160,13 @@ class RoomDatabaseService
                         ]);
                     }
 
-                    if ($room->players()->count() >= 6) {
+                    if ($room->players()->where('has_left', false)->count() >= $room->player_limit) {
                         throw ValidationException::withMessages([
-                            'room' => 'ห้องเต็มแล้ว รับผู้เล่นได้สูงสุด 6 คน',
+                            'room' => 'ห้องเต็มแล้ว',
                         ]);
                     }
+
+                    $room->update(['start_countdown_at' => null]);
 
                     $room->players()->create([
                         'player_name' => $playerName,
@@ -194,6 +210,7 @@ class RoomDatabaseService
                     $wasHost = $player->is_host;
 
                     $player->delete();
+                    $room->update(['start_countdown_at' => null]);
 
                     $nextPlayer = $room->players()
                         ->orderBy('player_id')

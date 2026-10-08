@@ -2,11 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\GameLogic\DifficultyConfig;
 use App\Services\GameService;
 use App\Services\RoomService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 class RoomController extends Controller
@@ -18,18 +21,49 @@ class RoomController extends Controller
         $validated = $request->validate([
             'host_name' => ['required', 'string', 'max:45'],
             'difficulty' => ['required', 'in:easy,hard'],
+            'player_limit' => ['required', 'integer', Rule::in(DifficultyConfig::supportedPlayerCounts())],
+            'game_mode' => ['sometimes', 'in:normal,short'],
         ]);
 
         $room = $roomService->create(
             $validated['host_name'],
             $this->getPlayerUuid($request),
-            $validated['difficulty']
+            $validated['difficulty'],
+            (int) $validated['player_limit'],
+            $validated['game_mode'] ?? 'normal'
         );
 
         $request->session()->put('current_room_code', $room['code']);
 
         return redirect()->route('rooms.show', [
             'code' => $room['code'],
+        ]);
+    }
+
+    public function ready(Request $request, RoomService $roomService, string $code): RedirectResponse
+    {
+        $playerUuid = $request->session()->get('player_uuid');
+        abort_unless(is_string($playerUuid) && $playerUuid !== '', 403);
+        $request->validate(['ready' => ['required', 'boolean']]);
+        $roomService->setReady($code, $playerUuid, $request->boolean('ready'));
+
+        return redirect()->route('rooms.show', ['code' => strtoupper($code)]);
+    }
+
+    public function advanceStart(Request $request, RoomService $roomService, string $code): JsonResponse
+    {
+        $playerUuid = $request->session()->get('player_uuid');
+        abort_unless(is_string($playerUuid) && $playerUuid !== '', 403);
+        $room = $roomService->getRoom($code);
+        abort_unless(collect($room['players'])->contains('player_uuid', $playerUuid), 403);
+        $roomService->advanceLobby($code);
+        $room = $roomService->getRoom($code);
+
+        return response()->json([
+            'game_url' => $room['game_uuid'] !== null ? route('games.show', ['code' => $room['code']]) : null,
+            'start_countdown_at' => $room['start_countdown_at'],
+            'server_time' => $room['server_time'],
+            'players' => $room['players'],
         ]);
     }
 

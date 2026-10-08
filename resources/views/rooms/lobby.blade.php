@@ -515,7 +515,7 @@
                         </div>
 
                         <div class="info-value mt-1">
-                            {{ count($room['players']) }} / 6
+                            {{ count($room['players']) }} / {{ $room['player_limit'] }}
                         </div>
 
                     </div>
@@ -524,6 +524,15 @@
 
             </div>
 
+            <div class="alert-custom p-3 mb-3">
+                โหมด: {{ $room['game_mode'] === 'short' ? 'เกมสั้น ' : 'ปกติ' }}
+                @if ($room['game_mode'] === 'short')
+                · สูงสุด {{ config('game.short_max_rounds', 3) }} รอบ หรือ {{ config('game.short_duration_seconds', 480) / 60 }} นาที
+                @endif
+                @if ($room['player_limit'] >= 5)
+                · มีผู้คุ้มกัน 1 คน
+                @endif
+            </div>
             {{-- player list --}}
             <div class="mb-4">
 
@@ -586,6 +595,9 @@
                             </span>
 
                             @endif
+                            <span class="badge {{ $player['is_ready'] ? 'bg-success' : 'bg-secondary' }}">
+                                {{ $player['is_ready'] ? 'พร้อมแล้ว' : 'ยังไม่พร้อม' }}
+                            </span>
 
                         </div>
 
@@ -597,27 +609,22 @@
 
             </div>
 
-            {{-- waiting message --}}
             @php
             $playerCount = count($room['players']);
+            $me = collect($room['players'])->firstWhere('player_uuid', session('player_uuid'));
             @endphp
-
-            <div class="text-center waiting-text py-3">
-
-                @if ($playerCount < 4) ต้องมีผู้เล่นอย่างน้อย 4 คนเพื่อเริ่มเกม @elseif ($playerCount> 6)
-
-                    จำนวนผู้เล่นเกินจำนวนที่รองรับ
-
-                    @elseif (session('player_uuid') === $room['host_uuid'])
-
-                    พร้อมเริ่มเกมแล้ว
-
+            <div class="text-center waiting-text py-3" aria-live="polite">
+                <div id="lobby-countdown">
+                    @if ($playerCount < $room['player_limit'])
+                    รอผู้เล่นอีก {{ $room['player_limit'] - $playerCount }} คน
+                    @elseif ($room['start_countdown_at'] === null)
+                    รอทุกคนกดพร้อม
                     @else
-
-                    รอ Host กด Start Game
-
+                    กำลังนับถอยหลังเริ่มเกม…
                     @endif
-
+                </div>
+                <small>พร้อม {{ collect($room['players'])->where('is_ready', true)->count() }} / {{ $room['player_limit'] }} คน</small>
+                <div id="lobby-poll-status" class="mt-2"></div>
             </div>
 
             {{-- actions --}}
@@ -641,22 +648,13 @@
 
                 </form>
 
-                @if (
-                session('player_uuid') === $room['host_uuid']
-                )
-
-                <form method="POST" action="{{ route('rooms.start', ['code' => $room['code']]) }}" class="flex-fill">
-
+                <form method="POST" action="{{ route('rooms.ready', ['code' => $room['code']]) }}" class="flex-fill">
                     @csrf
-
-                    <button type="submit" class="btn btn-start w-100" @disabled($playerCount < 4 || $playerCount> 6)
-                        >
-                        เริ่มเกม
+                    <input type="hidden" name="ready" value="{{ $me['is_ready'] ? '0' : '1' }}">
+                    <button type="submit" class="btn btn-start w-100">
+                        {{ $me['is_ready'] ? 'ยกเลิกพร้อม' : 'พร้อม' }}
                     </button>
-
                 </form>
-
-                @endif
 
             </div>
 
@@ -789,6 +787,69 @@
         }
     });
     </script> -->
+
+    <script>
+    (() => {
+        const endpoint = @json(route('rooms.advance-start', ['code' => $room['code']]));
+        const csrf = document.querySelector('meta[name="csrf-token"]').content;
+        const originalPlayers = @json($room['players']);
+        const fingerprint = players => JSON.stringify(players.map(p => [p.player_uuid, p.is_ready]));
+        const initialFingerprint = fingerprint(originalPlayers);
+        let deadline = @json($room['start_countdown_at']);
+        let serverTime = Date.parse(@json($room['server_time']));
+        let syncedAt = performance.now();
+        let busy = false;
+        let stopped = false;
+        const label = document.getElementById('lobby-countdown');
+        const status = document.getElementById('lobby-poll-status');
+        function render() {
+            if (deadline) {
+                const remaining = Math.max(0, Math.ceil((Date.parse(deadline) - serverTime - (performance.now() - syncedAt)) / 1000));
+                label.textContent = remaining > 0 ? `เริ่มเกมใน ${remaining} วินาที` : 'กำลังเริ่มเกม…';
+            }
+        }
+        async function sync() {
+            if (busy || stopped) return;
+            busy = true;
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'POST', credentials: 'same-origin',
+                    headers: {'Accept': 'application/json', 'X-CSRF-TOKEN': csrf},
+                });
+                if (response.status === 403 || response.status === 404) {
+                    stopped = true;
+                    window.location.replace(@json(route('rooms.index')));
+                    return;
+                }
+                if (!response.ok) throw new Error('อัปเดตสถานะไม่สำเร็จ');
+                const state = await response.json();
+                status.textContent = '';
+                if (state.game_url) {
+                    stopped = true;
+                    window.location.replace(state.game_url);
+                    return;
+                }
+                if (fingerprint(state.players) !== initialFingerprint || state.start_countdown_at !== deadline) {
+                    stopped = true;
+                    window.location.reload();
+                    return;
+                }
+                deadline = state.start_countdown_at;
+                serverTime = Date.parse(state.server_time);
+                syncedAt = performance.now();
+                render();
+            } catch (error) {
+                status.textContent = 'เชื่อมต่อไม่สำเร็จ กำลังลองใหม่…';
+            } finally {
+                busy = false;
+            }
+        }
+        render();
+        setInterval(render, 250);
+        setInterval(sync, 1000);
+        sync();
+    })();
+    </script>
 
 </body>
 

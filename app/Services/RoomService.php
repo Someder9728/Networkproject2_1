@@ -7,6 +7,8 @@ use App\Events\RoomUpdated;
 use App\Exceptions\GameSnapshotUnavailableException;
 use App\GameLogic\GameConfiguration;
 use App\GameLogic\GameEngine;
+use App\GameLogic\MatchRules;
+use App\GameLogic\MatchTimeline;
 use App\GameLogic\PhaseManager;
 use App\GameLogic\RandomEvent;
 use App\GameLogic\RoleAbility;
@@ -19,6 +21,9 @@ use Illuminate\Validation\ValidationException;
 
 class RoomService
 {
+    use MatchPresence;
+    use VotingTrial;
+
     public function __construct(
         private RoomDatabaseService $roomDatabase
     ) {}
@@ -26,12 +31,16 @@ class RoomService
     public function create(
         string $hostName,
         string $hostUuid,
-        string $difficulty
+        string $difficulty,
+        int $playerLimit = 4,
+        string $gameMode = 'normal'
     ): array {
         $room = $this->roomDatabase->create(
             $hostName,
             $hostUuid,
-            $difficulty
+            $difficulty,
+            $playerLimit,
+            $gameMode
         );
 
         return $this->getRoom($room->room_code);
@@ -125,27 +134,69 @@ class RoomService
                     $room['status'] !== 'waiting'
                     || ($room['game_uuid'] ?? null) !== null
                 ) {
-                    throw ValidationException::withMessages([
-                        'room' => 'ห้องนี้เริ่มเกมไปแล้ว',
-                    ]);
+                    return $room;
                 }
 
-                if (! in_array(count($room['players']), [4, 6], true)) {
+                if (
+                    count($room['players']) !== $room['player_limit']
+                    || ! collect($room['players'])->every(fn (array $player) => $player['is_ready'])
+                    || $room['start_countdown_at'] === null
+                    || now()->lt(CarbonImmutable::parse($room['start_countdown_at']))
+                ) {
                     throw ValidationException::withMessages([
-                        'room' => 'ต้องมีผู้เล่น 4 หรือ 6 คนจึงเริ่มเกมได้',
+                        'room' => 'ต้องมีผู้เล่นครบ ทุกคนพร้อม และนับถอยหลังจบก่อน',
                     ]);
                 }
 
                 $game = $gameService->buildSession($room);
 
+                $game['game_started_at'] = now()->toIso8601String();
+                $game['match_end_time'] = $game['game_mode'] === 'short' ? now()->addSeconds(max(30, (int) config('game.short_duration_seconds', 480)))->toIso8601String() : null;
+                $game['status'] = 'in_progress';
+                $game['current_phase'] = PhaseManager::PHASE_DAY_DISCUSSION;
+                $game['current_round'] = 1;
+                $game['phase_end_time'] = now()->addSeconds($game['config']['day_discussion_sec'])->toIso8601String();
                 $room['game_uuid'] = $game['game_uuid'];
-                $room['status'] = 'initializing';
+                $room['status'] = $game['current_phase'];
                 $room['game'] = $game;
 
                 $this->saveGameRoom($room);
 
                 return $room;
             });
+    }
+
+    public function setReady(string $code, string $playerUuid, bool $ready): void
+    {
+        $code = strtoupper(trim($code));
+        RoomLock::make($code, 10)->block(3, function () use ($code, $playerUuid, $ready) {
+            DB::transaction(function () use ($code, $playerUuid, $ready) {
+                $record = Room::where('room_code', $code)->firstOrFail();
+                $player = $record->players()->where('player_uuid', $playerUuid)->where('has_left', false)->first();
+                abort_if($player === null, 403, 'คุณไม่ได้อยู่ในห้องนี้');
+                if ($record->game_uuid !== null || $record->room_status !== 'waiting') {
+                    throw ValidationException::withMessages(['room' => 'เกมเริ่มแล้ว']);
+                }
+                $player->update(['is_ready' => $ready]);
+                $players = $record->players()->where('has_left', false)->get();
+                $everyoneReady = $players->count() === $record->player_limit && $players->every(fn ($member) => $member->is_ready);
+                $deadline = $everyoneReady
+                    ? ($record->start_countdown_at ?? now()->addSeconds(max(1, (int) config('game.lobby_countdown_seconds', 5))))
+                    : null;
+                $record->update(['start_countdown_at' => $deadline]);
+                $this->broadcastRoomUpdated($code);
+            });
+        });
+    }
+
+    public function advanceLobby(string $code): void
+    {
+        $room = $this->getRoom($code);
+        if ($room['game_uuid'] !== null || $room['start_countdown_at'] === null || now()->lt(CarbonImmutable::parse($room['start_countdown_at']))) {
+            return;
+        }
+        // start rechecks the full roster and readiness under the existing room lock.
+        $this->start($code, $room['host_uuid'], app(GameService::class));
     }
 
     public function getGameView(
@@ -185,6 +236,11 @@ class RoomService
                     'name' => $player['name'],
                     'is_alive' => $player['is_alive'],
                     'has_left' => $player['has_left'] ?? false,
+                    'is_connected' => $player['is_connected'] ?? true,
+                    'reconnect_deadline' => $player['reconnect_deadline'] ?? null,
+                    'is_sick' => (bool) ($player['is_sick'] ?? false),
+                    'sickness_death_round' => $player['sickness_death_round'] ?? null,
+                    'death_reason' => $player['death_reason'] ?? null,
                 ])
                 ->values()
                 ->all();
@@ -202,6 +258,7 @@ class RoomService
             $voteResult = [
                 'round' => $result['round'],
                 'name' => $eliminated['name'] ?? null,
+                'totals' => $result['totals'] ?? [],
             ];
 
             if ($eliminated !== null && $game['difficulty'] === 'easy') {
@@ -304,6 +361,7 @@ class RoomService
             $nightResult = [
                 'round' => $result['round'],
                 'name' => $killed['name'] ?? null,
+                'blocked_by' => $result['blocked_by'] ?? null,
             ];
 
             if ($killed !== null && $game['difficulty'] === 'easy') {
@@ -334,12 +392,41 @@ class RoomService
             'current_phase' => $game['current_phase'],
             'current_round' => $game['current_round'],
             'my_role' => $me['role'],
+            'voting_stage' => $game['voting_stage'] ?? 'accusation',
+            'trial' => $game['current_phase'] === 'day_voting' && ($game['voting_stage'] ?? 'accusation') !== 'accusation' ? [
+                'name' => collect($game['players'])->firstWhere('player_uuid', $game['trial']['target_uuid'])['name'] ?? 'ผู้เล่น',
+                'is_defendant' => $game['trial']['target_uuid'] === $playerUuid,
+                'defense' => $game['trial']['defense'],
+                'my_verdict' => $game['trial']['votes'][$playerUuid] ?? null,
+            ] : null,
+            'trial_result' => $game['trial_result'] ?? null,
+            'vote_history' => $game['vote_history'] ?? [],
+            'event_history' => $game['event_history'] ?? [],
+
+            'sickness_deaths' => array_values(array_map(fn ($p) => ['name' => $p['name']], array_filter($game['players'], fn ($p) => in_array($p['player_uuid'], $game['night_result']['sickness_deaths'] ?? [], true)))),
+            'game_mode' => $game['game_mode'] ?? 'normal',
+            'max_rounds' => $game['max_rounds'] ?? null,
+            'match_end_time' => $game['match_end_time'] ?? null,
+            'finish_reason' => $game['finish_reason'] ?? null,
+            'evidence' => $game['evidence'] ?? [],
+            'night_rule' => isset($game['night_rule']) ? array_replace($game['night_rule'], ['description' => MatchRules::nightDescription($game['night_rule'], $game['players'])]) : null,
+            'secret_ballot' => (bool) ($game['day_config']['secret_ballot'] ?? false),
+            'vote_totals' => ($game['current_phase'] === 'day_voting' && ! ($game['day_config']['secret_ballot'] ?? false)) ? array_count_values(array_values($votes)) : [],
+            'can_guardian_act' => $game['status'] === 'in_progress' && $game['current_phase'] === 'night' && $me['role'] === 'guardian' && $me['is_alive'] && $game['phase_end_time'] !== null && now()->lt(CarbonImmutable::parse($game['phase_end_time'])),
+            'guardian_targets' => $me['role'] === 'guardian' ? array_values(array_map(fn ($p) => ['player_uuid' => $p['player_uuid'], 'name' => $p['name']], array_filter($game['players'], fn ($p) => $p['is_alive'] && ! ($p['has_left'] ?? false) && $p['player_uuid'] !== ($game['guardian_last_targets'][$playerUuid] ?? null)))) : [],
+            'my_guardian_target' => $me['role'] === 'guardian' ? ($game['night_actions'][$playerUuid]['target_id'] ?? null) : null,
+            'sync_version' => hash('sha256', json_encode([$game['status'], $game['current_phase'], $game['current_round'], $game['phase_end_time'], $game['players'] ? array_map(fn ($p) => [$p['player_uuid'], $p['is_alive'], $p['has_left'] ?? false, $p['is_connected'] ?? true], $game['players']) : [], $game['discussion_skip_votes'] ?? [], $game['trial']['defense'] ?? null, ($game['day_config']['secret_ballot'] ?? false) ? [] : ($game['day_votes'] ?? [])])),
             'players' => array_map(
                 fn (array $player) => [
                     'player_uuid' => $player['player_uuid'],
                     'name' => $player['name'],
                     'is_alive' => $player['is_alive'],
                     'has_left' => $player['has_left'] ?? false,
+                    'is_connected' => $player['is_connected'] ?? true,
+                    'reconnect_deadline' => $player['reconnect_deadline'] ?? null,
+                    'is_sick' => (bool) ($player['is_sick'] ?? false),
+                    'sickness_death_round' => $player['sickness_death_round'] ?? null,
+                    'death_reason' => $player['death_reason'] ?? null,
                 ],
                 $game['players']
             ),
@@ -349,14 +436,19 @@ class RoomService
             'phase_end_time' => $game['phase_end_time'],
             'server_time' => now()->toIso8601String(),
             'my_vote' => $myVote,
+            'discussion_skip_count' => count(array_filter($game['players'], fn (array $player) => $player['is_alive'] && ! ($player['has_left'] ?? false) && in_array($player['player_uuid'], $game['discussion_skip_votes'] ?? [], true))),
+            'discussion_skip_required' => count(array_filter($game['players'], fn (array $player) => $player['is_alive'] && ! ($player['has_left'] ?? false))),
+            'my_discussion_skip' => in_array($playerUuid, $game['discussion_skip_votes'] ?? [], true),
+            'can_skip_discussion' => $game['status'] === 'in_progress' && $game['current_phase'] === 'day_discussion' && $me['is_alive'] && ! ($me['has_left'] ?? false) && $game['phase_end_time'] !== null && now()->lt(CarbonImmutable::parse($game['phase_end_time'])),
             'can_vote' => $game['status'] === 'in_progress'
                 && $game['current_phase'] === 'day_voting'
+                && ($game['voting_stage'] ?? 'accusation') === 'accusation'
                 && $me['is_alive']
                 && $game['phase_end_time'] !== null
                 && now()->lt(
                     CarbonImmutable::parse($game['phase_end_time'])
                 ),
-            'can_werewolf_act' => $canWerewolfAct,
+            'can_werewolf_act' => $canWerewolfAct && ($game['night_rule']['id'] ?? null) !== 'peaceful_night',
             'werewolf_targets' => $werewolfTargets,
             'can_seer_act' => $canSeerAct,
             'seer_targets' => $seerTargets,
@@ -374,6 +466,27 @@ class RoomService
             'vote_result' => $voteResult,
             'ballot_number' => $game['ballot_number'] ?? 1,
             'winner' => $game['winner'],
+            // Reveal the authoritative snapshot only after the match has finished.
+            'game_result' => $game['status'] === 'finished' && $game['winner'] !== null
+                ? [
+                    'winner' => $game['winner'],
+                    'players' => array_map(
+                        fn (array $player) => [
+                            'player_uuid' => $player['player_uuid'],
+                            'name' => $player['name'],
+                            'role' => $player['role'],
+                            'is_alive' => $player['is_alive'],
+                            'has_left' => $player['has_left'] ?? false,
+                            'is_connected' => $player['is_connected'] ?? true,
+                            'reconnect_deadline' => $player['reconnect_deadline'] ?? null,
+                            'is_sick' => (bool) ($player['is_sick'] ?? false),
+                            'sickness_death_round' => $player['sickness_death_round'] ?? null,
+                            'death_reason' => $player['death_reason'] ?? null,
+                        ],
+                        $game['players']
+                    ),
+                ]
+                : null,
         ];
     }
 
@@ -497,27 +610,70 @@ class RoomService
                     ]);
                 }
 
-                // Constructor ของ P3 เริ่มที่ Discussion
-                $phaseManager = new PhaseManager(
-                    count($game['players']),
-                    $game['difficulty']
-                );
-
-                $game['current_phase'] = $phaseManager->nextPhase();
-                $game['day_votes'] = [];
-                $game['ballot_number'] = 1;
-
-                $dayConfig = $game['day_config'] ?? $game['config'];
-
-                $game['phase_end_time'] = now()
-                    ->addSeconds($dayConfig['day_voting_sec'])
-                    ->toIso8601String();
-
-                $room['status'] = $game['current_phase'];
-                $room['game'] = $game;
-
-                $this->saveGameRoom($room);
+                $this->enterVoting($room, $game);
             });
+    }
+
+    private function enterVoting(array $room, array $game): void
+    {
+        // Constructor ของ P3 เริ่มที่ Discussion
+        $phaseManager = new PhaseManager(
+            count($game['players']),
+            $game['difficulty']
+        );
+
+        $game['current_phase'] = $phaseManager->nextPhase();
+        $game['day_votes'] = [];
+        $game['voting_stage'] = 'accusation';
+        $game['day_skip_votes'] = [];
+        $game['discussion_skip_votes'] = [];
+        $game['ballot_number'] = 1;
+
+        $dayConfig = $game['day_config'] ?? $game['config'];
+
+        $game['phase_end_time'] = now()
+            ->addSeconds($dayConfig['day_voting_sec'])
+            ->toIso8601String();
+
+        $room['status'] = $game['current_phase'];
+        $room['game'] = $game;
+
+        $this->saveGameRoom($room);
+    }
+
+    private function discussionSkippedByEveryone(array $game): bool
+    {
+        $eligible = array_filter($game['players'], fn (array $player) => $player['is_alive'] && ! ($player['has_left'] ?? false));
+
+        return count($eligible) > 0 && collect($eligible)->every(
+            fn (array $player) => in_array($player['player_uuid'], $game['discussion_skip_votes'] ?? [], true)
+        );
+    }
+
+    public function skipDiscussion(string $code, string $playerUuid, string $expectedEndTime): void
+    {
+        $code = strtoupper(trim($code));
+        RoomLock::make($code, 10)->block(3, function () use ($code, $playerUuid, $expectedEndTime) {
+            $room = $this->getRoom($code);
+            abort_unless(collect($room['players'])->contains('player_uuid', $playerUuid), 403, 'คุณไม่ได้อยู่ในห้องนี้');
+            $game = $room['game'] ?? null;
+            abort_if($game === null, 404, 'ยังไม่มีเกม');
+            $me = collect($game['players'])->firstWhere('player_uuid', $playerUuid);
+            abort_unless($me !== null && $me['is_alive'] && ! ($me['has_left'] ?? false), 403, 'เฉพาะผู้เล่นที่มีชีวิตและยังอยู่ในเกม');
+            if ($game['status'] !== 'in_progress' || $game['current_phase'] !== 'day_discussion' || $game['phase_end_time'] !== $expectedEndTime || now()->gte(CarbonImmutable::parse($expectedEndTime))) {
+                throw ValidationException::withMessages(['game' => 'ช่วงพูดคุยเปลี่ยนแล้วหรือหมดเวลา']);
+            }
+            $game['discussion_skip_votes'] = array_values(array_unique([
+                ...($game['discussion_skip_votes'] ?? []), $playerUuid,
+            ]));
+            if ($this->discussionSkippedByEveryone($game)) {
+                $this->enterVoting($room, $game);
+            } else {
+                $room['game'] = $game;
+                $this->saveGameRoom($room);
+                $this->broadcastRoomUpdated($code);
+            }
+        });
     }
 
     public function vote(
@@ -556,6 +712,10 @@ class RoomService
                     ]);
                 }
 
+                if (($game['voting_stage'] ?? 'accusation') !== 'accusation') {
+                    throw ValidationException::withMessages(['vote' => 'ขณะนี้เป็นช่วงแก้ต่างหรือยืนยัน']);
+                }
+
                 // โหลดเฉพาะคะแนนของวันและรอบโหวตปัจจุบัน
                 $game['day_votes'] = $this->loadDayVotes(
                     $code,
@@ -579,6 +739,11 @@ class RoomService
                 }
 
                 $room['game'] = $engine->getGameState();
+                if ($targetUuid === 'skip') {
+                    $room['game']['day_skip_votes'][$playerUuid] = true;
+                } else {
+                    unset($room['game']['day_skip_votes'][$playerUuid]);
+                }
 
                 $this->saveGameRoom($room, [
                     'voter_uuid' => $playerUuid,
@@ -644,14 +809,27 @@ class RoomService
                     $game['ballot_number'] ?? 1
                 );
 
-                $engine = new GameEngine($game);
-                $outcome = $engine->resolveDayVoteOutcome();
+                $stage = $game['voting_stage'] ?? 'accusation';
+                if ($stage === 'accusation') {
+                    $game = $this->recordBallot($game);
+                    $engine = new GameEngine($game);
+                    $outcome = $engine->resolveDayVoteOutcome();
+                } else {
+                    $outcome = $this->trialOutcome($game);
+                    if ($outcome === null) {
+                        $room['game'] = $game;
+                        $this->saveGameRoom($room);
+
+                        return;
+                    }
+                }
 
                 $dayConfig = $game['day_config'] ?? $game['config'];
 
                 if ($outcome['requires_revote']) {
                     $game['ballot_number'] = 2;
                     $game['day_votes'] = [];
+                    $game['day_skip_votes'] = [];
 
                     $game['phase_end_time'] = now()
                         ->addSeconds($dayConfig['day_voting_sec'])
@@ -664,10 +842,24 @@ class RoomService
                 }
 
                 $targetUuid = $outcome['eliminated_uuid'];
+                if ($targetUuid !== null && $stage === 'accusation' && ($game['defense_enabled'] ?? config('game.defense_enabled', true))) {
+                    $game['voting_stage'] = 'defense';
+                    $game['trial'] = ['target_uuid' => $targetUuid, 'defense' => null, 'votes' => []];
+                    $game['phase_end_time'] = now()->addSeconds(max(1, (int) config('game.defense_seconds', 30)))->toIso8601String();
+                    $room['game'] = $game;
+                    $this->saveGameRoom($room);
+
+                    return;
+                }
+
+                if ($targetUuid === null) {
+                    $game = MatchRules::infectAfterNoElimination($game);
+                }
 
                 $game['vote_result'] = [
                     'round' => $game['current_round'],
                     'eliminated_uuid' => $targetUuid,
+                    'totals' => array_count_values(array_values($game['day_votes'])),
                 ];
 
                 if ($targetUuid !== null) {
@@ -703,9 +895,10 @@ class RoomService
                     $game['current_phase'] = $phaseManager->nextPhase();
 
                     $game['phase_end_time'] = now()
-                        ->addSeconds($phaseManager->getPhaseDuration())
+                        ->addSeconds($game['config']['night_sec'] ?? $phaseManager->getPhaseDuration())
                         ->toIso8601String();
 
+                    $game['night_rule'] = MatchRules::nightEvent($game['players']);
                     $game['night_actions'] = [];
                     $game['seer_checks_used'] = [];
                     $room['status'] = $game['current_phase'];
@@ -742,6 +935,7 @@ class RoomService
                 ->firstOrFail();
 
             $previousGame = $record->game_snapshot;
+            $game = MatchTimeline::update($game, is_array($previousGame) ? $previousGame : null);
 
             $previousState = is_array($previousGame)
                 ? $this->phaseBroadcastState($previousGame)
@@ -762,6 +956,7 @@ class RoomService
                     : $room['status'],
                 'room_phase_end_time' => $game['phase_end_time'],
                 'game_snapshot' => $game,
+                'start_countdown_at' => null,
             ]);
 
             foreach ($game['players'] as $player) {
@@ -781,25 +976,26 @@ class RoomService
                     ->where('player_uuid', $voteData['voter_uuid'])
                     ->firstOrFail();
 
-                $target = $record->players()
+                $isSkip = $voteData['target_uuid'] === 'skip';
+                $target = $isSkip ? null : $record->players()
                     ->where('player_uuid', $voteData['target_uuid'])
                     ->firstOrFail();
 
-                VoteAction::updateOrCreate(
-                    [
-                        'rooms_room_id' => $record->room_id,
-                        'phase_number' => $game['current_round'],
-                        'phase_type' => $game['current_phase'],
-                        'action_type' => $voteData['action_type'] ?? 'vote_lynch',
-                        'players_voter_id' => $voter->player_id,
-                        'ballot_number' => $game['current_phase'] === 'day_voting'
-                        ? ($game['ballot_number'] ?? 1)
-                        : 1,
-                    ],
-                    [
-                        'players_target_id' => $target->player_id,
-                    ]
-                );
+                $ballotKey = [
+                    'rooms_room_id' => $record->room_id,
+                    'phase_number' => $game['current_round'],
+                    'phase_type' => $game['current_phase'],
+                    'action_type' => $voteData['action_type'] ?? 'vote_lynch',
+                    'players_voter_id' => $voter->player_id,
+                    'ballot_number' => $game['current_phase'] === 'day_voting'
+                    ? ($game['ballot_number'] ?? 1)
+                    : 1,
+                ];
+                if ($isSkip) {
+                    VoteAction::where($ballotKey)->delete();
+                } else {
+                    VoteAction::updateOrCreate($ballotKey, ['players_target_id' => $target->player_id]);
+                }
             }
 
             if ($membershipChanged) {
@@ -837,6 +1033,7 @@ class RoomService
 
         $aliveUuids = collect($gamePlayers)
             ->where('is_alive', true)
+            ->filter(fn (array $player) => ! ($player['has_left'] ?? false))
             ->pluck('player_uuid')
             ->all();
 
@@ -862,6 +1059,15 @@ class RoomService
             }
 
             $votes[$voterUuid] = $targetUuid;
+        }
+
+        $snapshot = $record->game_snapshot;
+        if (($snapshot['current_round'] ?? null) === $round && ($snapshot['ballot_number'] ?? 1) === $ballotNumber) {
+            foreach ($snapshot['day_skip_votes'] ?? [] as $uuid => $skipped) {
+                if ($skipped && in_array($uuid, $aliveUuids, true)) {
+                    $votes[$uuid] = 'skip';
+                }
+            }
         }
 
         return $votes;
@@ -989,6 +1195,11 @@ class RoomService
                     }
                 }
 
+                if ($game['status'] === 'in_progress' && $game['current_phase'] === 'day_discussion' && $this->discussionSkippedByEveryone($game)) {
+                    $this->enterVoting($room, $game);
+
+                    return;
+                }
                 $room['game'] = $game;
                 $this->saveGameRoom($room);
             });
@@ -1233,7 +1444,8 @@ class RoomService
 
                 $resolutionSnapshot['night_actions'] = array_replace(
                     $validWerewolfActions,
-                    $validSeerActions
+                    $validSeerActions,
+                    array_filter($game['night_actions'] ?? [], fn (array $action) => ($action['role'] ?? null) === 'guardian')
                 );
 
                 $engine = new GameEngine($resolutionSnapshot);
@@ -1243,12 +1455,14 @@ class RoomService
 
                 $killedUuid = $nightOutcome['killed_uuid'];
 
+                $game['guardian_last_targets'] = $nightOutcome['guardian_last_targets'];
                 $game['seer_results'] = $seerOutcome['seer_results'];
                 $game['seer_checks_used'] = $seerOutcome['seer_checks_used'];
 
                 $game['night_result'] = [
                     'round' => $game['current_round'],
                     'killed_uuid' => $killedUuid,
+                    'blocked_by' => $nightOutcome['blocked_by'] ?? null,
                 ];
 
                 if ($killedUuid !== null) {
@@ -1262,10 +1476,14 @@ class RoomService
                     unset($player);
                 }
 
+                $game = MatchRules::resolveSickness($game);
+
                 $game['winner'] = RoleAbility::checkWinCondition(
                     $game['players']
                 );
 
+                $game = MatchRules::addEvidence($game);
+                $game = MatchRules::applyTimeLimit($game, true);
                 $game['night_actions'] = [];
 
                 if ($game['winner'] !== null) {
@@ -1275,6 +1493,7 @@ class RoomService
                     $room['status'] = 'ended';
                 } else {
                     $game['current_round']++;
+                    $game['discussion_skip_votes'] = [];
                     $game['current_phase'] = PhaseManager::PHASE_DAY_DISCUSSION;
 
                     // เริ่มจากค่าพื้นฐานทุกครั้ง ไม่ใช้ค่าที่ถูกปรับจากรอบเก่า
@@ -1288,9 +1507,8 @@ class RoomService
                         && $nightEvent['applies_to_round'] === $game['current_round']
                     ) {
                         $event = $nightEvent['event'];
-                        $supported = $event['id'] !== 'second_chance';
+                        $supported = true;
 
-                        // second_chance ยังรอเชื่อมโฟลว์โหวตใหม่
                         $dayConfig = GameConfiguration::applyRandomEvent(
                             $game['config'],
                             $event

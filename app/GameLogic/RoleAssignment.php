@@ -10,6 +10,8 @@ class RoleAssignment
 
     public const ROLE_SEER = 'seer';
 
+    public const ROLE_GUARDIAN = 'guardian';
+
     public const TEAM_WEREWOLF = 'werewolf';
 
     public const TEAM_VILLAGER = 'villager';
@@ -19,7 +21,7 @@ class RoleAssignment
     {
         return match ($role) {
             self::ROLE_WEREWOLF => self::TEAM_WEREWOLF,
-            self::ROLE_VILLAGER, self::ROLE_SEER => self::TEAM_VILLAGER,
+            self::ROLE_VILLAGER, self::ROLE_SEER, self::ROLE_GUARDIAN => self::TEAM_VILLAGER,
             default => throw new \InvalidArgumentException("ไม่รู้จักบทบาท: {$role}"),
         };
     }
@@ -30,7 +32,7 @@ class RoleAssignment
         $totalPlayers = count($playerIds);
 
         if (! in_array($totalPlayers, DifficultyConfig::supportedPlayerCounts(), true)) {
-            throw new \InvalidArgumentException('รองรับแค่ 4 หรือ 6 คนเท่านั้น');
+            throw new \InvalidArgumentException('รองรับจำนวนผู้เล่น: '.implode(', ', DifficultyConfig::supportedPlayerCounts()));
         }
 
         if ($totalPlayers < $werewolfCount + 1) {
@@ -45,6 +47,9 @@ class RoleAssignment
         }
 
         $rolesPool[] = self::ROLE_SEER;
+        if ($totalPlayers >= 5) {
+            $rolesPool[] = self::ROLE_GUARDIAN;
+        }
 
         $remainingVillagers = $totalPlayers - count($rolesPool);
         for ($i = 0; $i < $remainingVillagers; $i++) {

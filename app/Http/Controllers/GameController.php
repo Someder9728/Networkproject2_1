@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Services\RoomService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 use Illuminate\View\View;
 
 class GameController extends Controller
@@ -22,6 +23,8 @@ class GameController extends Controller
             'ไม่พบตัวตนผู้เล่น'
         );
 
+        $roomService->maintainMatch($code, $playerUuid);
+        $roomService->advanceExpiredPhase($code);
         $game = $roomService->getGameView($code, $playerUuid);
 
         return view('games.show', ['game' => $game]);
@@ -75,6 +78,16 @@ class GameController extends Controller
         ]);
     }
 
+    public function skipDiscussion(Request $request, RoomService $roomService, string $code): RedirectResponse
+    {
+        $playerUuid = $request->session()->get('player_uuid');
+        abort_unless(is_string($playerUuid) && $playerUuid !== '', 403);
+        $validated = $request->validate(['expected_end_time' => ['required', 'string', 'date']]);
+        $roomService->skipDiscussion($code, $playerUuid, $validated['expected_end_time']);
+
+        return redirect()->route('games.show', ['code' => strtoupper($code)]);
+    }
+
     public function vote(
         Request $request,
         RoomService $roomService,
@@ -89,7 +102,11 @@ class GameController extends Controller
         );
 
         $validated = $request->validate([
-            'target_uuid' => ['required', 'uuid'],
+            'target_uuid' => ['required', 'string', function (string $attribute, mixed $value, \Closure $fail) {
+                if ($value !== 'skip' && ! Str::isUuid($value)) {
+                    $fail('เลือกผู้เล่นหรือ Skip เท่านั้น');
+                }
+            }],
             'expected_end_time' => ['required', 'string', 'date'],
         ]);
 

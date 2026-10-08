@@ -1804,12 +1804,25 @@
             grid-template-columns: 1fr;
         }
     }
+    .role-werewolf { color: #fca5a5; }
+    .role-seer { color: #c4b5fd; }
+    .role-guardian { color: #67e8f9; }
+    .role-banner.role-guardian { border-color: #06b6d4; }
+    .role-villager { color: #86efac; }
+    .role-banner.role-werewolf { border-color: #ef4444; }
+    .role-banner.role-seer { border-color: #8b5cf6; }
+    .role-banner.role-villager { border-color: #22c55e; }
+    .result-role-value small { color: #cbd5e1; }
     </style>
 
 
+    @include('games.dashboard-style')
 </head>
 
-<body>
+@php
+    $viewerState = collect($game['players'])->firstWhere('player_uuid', session('player_uuid'));
+@endphp
+<body data-player-state="{{ ($viewerState['has_left'] ?? false) ? 'left' : (($viewerState['is_alive'] ?? true) ? 'alive' : 'dead') }}" data-game-phase="{{ $game['current_phase'] }}" data-game-stage="{{ $game['voting_stage'] }}" data-game-id="{{ $game['game_uuid'] }}" data-game-round="{{ $game['current_round'] }}">
 
     <div class="smoke-wrapper">
         <div class="smoke-layer-1"></div>
@@ -1846,6 +1859,20 @@
                 </a>
             </div>
 
+                    {{-- leave game --}}
+                    <div class="header-leave">
+
+                        <form method="POST" action="{{ route('games.leave', [
+                            'code' => $game['room_code'],
+                                ]) }}" id="leave-game-form">
+                            @csrf
+
+                            <button type="button" id="leave-game-button" class="top-pill header-leave-button">
+                                ออกจากเกม
+                            </button>
+                        </form>
+
+                    </div>
         </div>
 
     </header>
@@ -1882,6 +1909,16 @@
 
 
                 <div class="content">
+                    @php
+                    $roleLabels = [
+                    'werewolf' => 'หมาป่า',
+                    'seer' => 'ผู้หยั่งรู้',
+                    'guardian' => 'ผู้คุ้มกัน',
+                    'villager' => 'ชาวบ้าน',
+                    ];
+                    @endphp
+                    @include('games.match-summary')
+
 
                     {{-- errors --}}
                     @foreach ($errors->all() as $error)
@@ -1981,9 +2018,17 @@
 
                         </div>
 
+                        @if (count($game['event_history']) > 0)
+                        <div class="latest-game-event" aria-live="polite">
+                            <strong>เหตุการณ์ล่าสุด</strong>
+                            <span>{{ $game['event_history'][array_key_last($game['event_history'])]['message'] }}</span>
+                        </div>
+                        @endif
+                    @include('games.role-status')
                     </div>
 
 
+<div data-dash-zone="rules">
                     {{-- game information --}}
                     <div class="info-grid">
 
@@ -2029,25 +2074,23 @@
                     </div>
 
 
-                    @php
-                    $roleLabels = [
-                    'werewolf' => 'หมาป่า',
-                    'seer' => 'ผู้หยั่งรู้',
-                    'villager' => 'ชาวบ้าน',
-                    ];
-                    @endphp
 
 
+
+                    @include('games.expansion')
+
+</div>
+<div data-dash-zone="role">
                     {{-- player role --}}
                     @if ($game['my_role'] !== null)
 
-                    <div class="role-banner">
+                    <div class="role-banner role-{{ $game['my_role'] }}">
 
                         <div class="role-label">
                             YOUR ROLE
                         </div>
 
-                        <div class="role-name">
+                        <div class="role-name role-{{ $game['my_role'] }}">
                             {{ $roleLabels[$game['my_role']] ?? 'ไม่ทราบบทบาท' }}
                         </div>
 
@@ -2055,6 +2098,8 @@
 
                     @endif
 
+
+                    @include('games.role-guide')
 
                     {{-- werewolf teammates --}}
                     @if ($game['my_role'] === 'werewolf')
@@ -2084,7 +2129,7 @@
                                     @if ($teammate['has_left'])
                                     ออกจากเกมแล้ว
                                     @elseif (!$teammate['is_alive'])
-                                    เสียชีวิต
+                                    <span style="color: red;">เสียชีวิต</span>
                                     @else
                                     มีชีวิต
                                     @endif
@@ -2108,82 +2153,12 @@
                     @endif
 
 
-                    {{-- players --}}
-                    <div class="section-heading">
+</div>
+<div data-dash-zone="players">
+                    @include('games.player-roster')
 
-                        <h2 class="section-title">
-                            ผู้เล่น
-                        </h2>
-
-                        <div class="section-count">
-                            {{ count($game['players']) }} Players
-                        </div>
-
-                    </div>
-
-
-                    <div class="players-grid">
-
-                        @foreach ($game['players'] as $player)
-
-                        @php
-                        $playerClass = '';
-
-                        if ($player['has_left']) {
-                        $playerClass = 'left-player';
-                        } elseif (!$player['is_alive']) {
-                        $playerClass = 'dead';
-                        }
-
-                        $isCurrentPlayer =
-                        $player['player_uuid'] === session('player_uuid');
-                        @endphp
-
-                        <div class="player-card {{ $playerClass }} {{ $isCurrentPlayer ? 'you' : '' }}">
-
-                            <div class="player-avatar">
-                                {{ mb_substr($player['name'], 0, 1) }}
-                            </div>
-
-                            <div class="player-details">
-
-                                <div class="player-name">
-
-                                    {{ $player['name'] }}
-
-                                    @if ($isCurrentPlayer)
-                                    <span class="player-you {{
-                                            $loop->index % 2 === 0
-                                            ? 'purple'
-                                            : 'blue'
-                                        }}">
-                                        (คุณ)
-                                    </span>
-                                    @endif
-
-                                </div>
-
-                                <div class="player-status">
-
-                                    @if ($player['has_left'])
-                                    ออกจากเกมแล้ว
-                                    @elseif (!$player['is_alive'])
-                                    เสียชีวิต
-                                    @else
-                                    มีชีวิต
-                                    @endif
-
-                                </div>
-
-                            </div>
-
-                        </div>
-
-                        @endforeach
-
-                    </div>
-
-
+</div>
+<div data-dash-zone="actions">
                     {{-- start discussion --}}
                     @if ($game['can_begin_discussion'])
 
@@ -2205,94 +2180,10 @@
                     @endif
 
 
-                    {{-- day voting --}}
-                    @if ($game['can_vote'])
+                    @include('games.trial')
 
-                    <form method="POST" action="{{ route('games.vote', [
-                        'code' => $game['room_code'],
-                    ]) }}">
-
-                        @csrf
-
-                        <input type="hidden" name="expected_end_time" value="{{ $game['phase_end_time'] }}">
-
-                        <div class="action-description">
-                            เลือกผู้เล่นที่คุณต้องการโหวตออก
-                        </div>
-
-                        <div class="form-group">
-
-                            <div class="vote-target-list" id="vote-target-list">
-
-                                @foreach ($game['players'] as $player)
-
-                                @if ($player['player_uuid'] !== session('player_uuid'))
-
-                                <button type="button"
-                                    class="vote-target-card {{ $game['my_vote'] === $player['player_uuid'] ? 'selected' : '' }}"
-                                    data-player-uuid="{{ $player['player_uuid'] }}">
-
-                                    <span class="vote-target-avatar">
-                                        {{ mb_substr($player['name'], 0, 1) }}
-                                    </span>
-
-                                    <span class="vote-target-info">
-
-                                        <span class="vote-target-name">
-                                            {{ $player['name'] }}
-                                        </span>
-
-                                        <span class="vote-target-status">
-                                            มีชีวิต
-                                        </span>
-
-                                    </span>
-
-                                    <span class="vote-target-check">
-                                        ✓
-                                    </span>
-
-                                </button>
-
-                                @endif
-
-                                @endforeach
-
-                            </div>
-
-                            <input type="hidden" name="target_uuid" id="vote-target" value="{{ $game['my_vote'] }}"
-                                required>
-
-                        </div>
-
-                        <button type="submit" class="btn-game vote-button">
-
-                            @if ($game['my_vote'] !== null)
-                            เปลี่ยนโหวต
-                            @else
-                            ยืนยันโหวต
-                            @endif
-
-                        </button>
-
-                    </form>
-
-                    @else
-                    <div class="alert-game">
-
-                        @if ($game['my_vote'] !== null)
-                        คุณโหวต
-                        {{ collect($game['players'])->firstWhere('player_uuid', $game['my_vote'])['name'] ?? 'ผู้เล่น' }}
-                        แล้ว
-                        @else
-                        ตอนนี้คุณไม่สามารถโหวตได้
-                        @endif
-
-                    </div>
-
-                    @endif
-
-
+</div>
+<div data-dash-zone="results">
                     {{-- vote result --}}
                     @if ($game['vote_result'] !== null)
 
@@ -2325,7 +2216,7 @@
                             @if (isset($game['vote_result']['role']))
                             <div class="result-role">
                                 <span class="info-label mb-0">บทบาท</span>
-                                <span class="result-role-value">
+                                <span class="result-role-value role-{{ $game['vote_result']['role'] }}">
                                     {{ $roleLabels[$game['vote_result']['role']] }}
                                 </span>
                             </div>
@@ -2346,28 +2237,9 @@
                     @endif
 
 
-                    {{-- winner --}}
-                    @if ($game['winner'] !== null)
 
-                    <div class="winner-panel">
-
-                        <div class="winner-label">
-                            MATCH SUMMARY
-                        </div>
-
-                        <div class="winner-title">
-
-                            {{ $game['winner'] === 'werewolf'
-                                    ? 'ทีมหมาป่าชนะ'
-                                    : 'ทีมชาวบ้านชนะ' }}
-
-                        </div>
-
-                    </div>
-
-                    @endif
-
-
+</div>
+<div data-dash-zone="actions">
                     {{-- finish discussion --}}
                     @if (
                     $game['current_phase'] === 'day_discussion'
@@ -2422,6 +2294,8 @@
                     @endif
 
 
+</div>
+<div data-dash-zone="actions">
                     {{-- night --}}
                     @if ($game['current_phase'] === 'night')
 
@@ -2587,6 +2461,9 @@
                     @endif
 
 
+
+</div>
+<div data-dash-zone="results">
                     {{-- night result --}}
                     @if ($game['night_result'] !== null)
 
@@ -2609,7 +2486,7 @@
 
                         <div class="phase-round mt-1">
                             บทบาท:
-                            {{ $roleLabels[$game['night_result']['role']] }}
+                            <span class="role-{{ $game['night_result']['role'] }}">{{ $roleLabels[$game['night_result']['role']] }}</span>
                         </div>
 
                         @endif
@@ -2625,6 +2502,7 @@
                     </div>
 
                     @endif
+
 
 
                     {{-- seer results --}}
@@ -2675,6 +2553,9 @@
                     @endif
 
 
+
+</div>
+<div data-dash-zone="actions">
                     {{-- finish night --}}
                     @if (
                     $game['status'] === 'in_progress'
@@ -2703,6 +2584,8 @@
                     @endif
 
 
+</div>
+<div data-dash-zone="rules">
                     {{-- night event --}}
                     @if (
                     $game['current_phase'] === 'night'
@@ -2735,9 +2618,7 @@
 
                             <br><br>
 
-                            กำลังทดสอบประกาศ Event —
-                            ผลจะเริ่มในกลางวันถัดไป
-                            โดยโอกาสลงคะแนนใหม่ยังอยู่ระหว่างเชื่อมระบบ
+                            กติกานี้จะมีผลในกลางวันถัดไป
 
                             @endif
 
@@ -2796,20 +2677,8 @@
                     @endif
 
 
-                    {{-- leave game --}}
-                    <div class="footer-actions">
+</div>
 
-                        <form method="POST" action="{{ route('games.leave', [
-                            'code' => $game['room_code'],
-                                ]) }}" id="leave-game-form">
-                            @csrf
-
-                            <button type="button" id="leave-game-button" class="btn-secondary-game">
-                                ออกจากเกม
-                            </button>
-                        </form>
-
-                    </div>
 
             </section>
 
@@ -2858,6 +2727,10 @@
                         <button type="button" class="chat-channel active" data-chat-channel="all">
                             แชตรวม
                         </button>
+
+                        @if ($canUseDeadChat)
+                        <button type="button" class="chat-channel dead" data-chat-channel="dead">ผู้เสียชีวิต</button>
+                        @endif
 
                         @if ($canUseWerewolfChat)
                         <button type="button" class="chat-channel werewolf" data-chat-channel="werewolf">
@@ -2932,6 +2805,25 @@
 
         </div>
     </div>
+
+    <button type="button" id="evidence-toggle" class="evidence-floating-toggle" aria-controls="evidence-panel" aria-expanded="false">🔎 หลักฐาน ({{ count($game['evidence']) }})</button>
+    <button type="button" id="chat-toggle" class="chat-floating-toggle" aria-controls="chat-panel" aria-expanded="false">แชท <span id="chat-unread"></span></button>
+    <button type="button" id="sound-toggle" class="sound-floating-toggle" aria-pressed="false">เปิดเสียงแจ้งเตือน</button>
+    <button type="button" id="game-notice" class="game-toast" hidden aria-live="polite"></button>
+    <style>
+    body[data-game-phase="day_discussion"] .phase-banner {border:2px solid #fbbf24;background:linear-gradient(120deg,#493414,#1b2138)}
+    body[data-game-phase="day_voting"] .phase-banner {border:2px solid #f97316;background:linear-gradient(120deg,#522712,#1b2138)}
+    body[data-game-phase="night"] .phase-banner {border:2px solid #818cf8;background:linear-gradient(120deg,#222052,#101828)}
+    body[data-game-stage="defense"] .phase-banner {border-color:#f43f5e}
+    body[data-game-stage="verdict"] .phase-banner {border-color:#06b6d4}
+    #chat-panel {position:fixed;right:18px;bottom:80px;width:min(390px,calc(100vw - 36px));max-height:75vh;overflow:auto;z-index:1000;box-shadow:0 12px 50px #0009;background:#111827}
+    #chat-panel[hidden] {display:none!important}
+    .chat-floating-toggle,.sound-floating-toggle {position:fixed;bottom:20px;right:18px;z-index:1001;border:1px solid #8b5cf6;border-radius:24px;background:#312e81;color:white;padding:12px 18px;cursor:pointer}
+    .sound-floating-toggle {right:120px;font-size:12px}
+    .chat-floating-toggle.unread,[data-chat-channel].unread {background:#b91c1c;color:white;border-color:#f87171}
+    .game-toast {position:fixed;top:24px;left:50%;transform:translateX(-50%);z-index:1100;max-width:min(500px,90vw);padding:16px 24px;background:#1e293b;color:white;border:2px solid #fbbf24;border-radius:14px;box-shadow:0 8px 40px #0008;cursor:pointer}
+    .game-toast[hidden] {display:none}
+    </style>
 
     {{-- popup --}}
     <script>
@@ -3187,6 +3079,7 @@
     }
     </script>
 
+    @include('games.death-effect')
 </body>
 
 </html>

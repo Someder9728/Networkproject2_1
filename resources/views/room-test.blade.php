@@ -579,7 +579,7 @@
         <div class="text-center mb-5">
 
             <h1 class="display-5 page-title text-uppercase">
-                WARE <span>WOOF</span>
+                WARE <span>WOLF</span>
             </h1>
 
             <p class="page-subtitle mt-3 mb-0">
@@ -713,6 +713,24 @@
 
                         </div>
 
+                        <div class="mb-4">
+                            <label for="player-limit" class="form-label">จำนวนผู้เล่น</label>
+                            <select id="player-limit" name="player_limit" class="form-control form-control-custom" required>
+                                @foreach (\App\GameLogic\DifficultyConfig::supportedPlayerCounts() as $limit)
+                                <option value="{{ $limit }}" @selected((int) old('player_limit', 4) === $limit)>{{ $limit }} คน</option>
+                                @endforeach
+                            </select>
+                            <p class="section-description mt-2">เมื่อคนครบและทุกคนกดพร้อม จะนับถอยหลัง {{ max(1, (int) config('game.lobby_countdown_seconds', 5)) }} วินาทีแล้วเริ่มอัตโนมัติ</p>
+                        </div>
+                        <div class="mb-4">
+                            <label for="game-mode" class="form-label">โหมดเกม</label>
+                            <select name="game_mode" id="game-mode" class="form-control form-control-custom">
+                                <option value="normal" @selected(old('game_mode', 'normal') === 'normal')>ปกติ</option>
+                                <option value="short" @selected(old('game_mode') === 'short')>เกมสั้น</option>
+                            </select>
+                            <p class="section-description">เกมสั้น: สูงสุด {{ config('game.short_max_rounds', 3) }} รอบ หรือ {{ config('game.short_duration_seconds', 480) / 60 }} นาที ชาวบ้านชนะถ้าหมาป่ายังชนะไม่ได้เมื่อครบกำหนด</p>
+                            <p class="section-description">ห้อง 5–10 คนมีผู้คุ้มกัน 1 คน ป้องกันคนเดิมติดกันไม่ได้</p>
+                        </div>
                         <button type="submit" class="btn btn-create w-100">
                             Create Room
                         </button>

@@ -57,6 +57,8 @@ class GameConfiguration
 
         $effect = $randomEvent['effect'] ?? [];
 
+        $effectiveSettings['secret_ballot'] = (bool) ($effect['secret_ballot'] ?? false);
+
         if (isset($effect['discussion_time_change'])) {
             $effectiveSettings['day_discussion_sec'] +=
                 $effect['discussion_time_change'];
