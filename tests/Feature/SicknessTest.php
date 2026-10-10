@@ -65,6 +65,13 @@ it('renders a matching image and objective for each private role', function (str
     $record->update(['game_snapshot' => $game]);
     $this->withoutVite()->withSession(['player_uuid' => $uuids[1]])
         ->get(route('games.show', ['code' => $code]))->assertOk()
-        ->assertSee('images/roles/'.$role.'.png')->assertSee('เป้าหมายเพื่อชนะ:');
+        ->assertSee('images/roles/'.$role.'.png')
+        ->assertSee('<h4>เป้าหมายเพื่อชนะ</h4>', false)
+        ->assertSee(match ($role) {
+            'werewolf' => 'ทำให้จำนวนหมาป่าที่ยังมีชีวิตมากกว่าหรือเท่ากับฝ่ายชาวบ้าน',
+            'seer' => 'ร่วมกับฝ่ายชาวบ้านกำจัดหมาป่าทั้งหมด',
+            'guardian' => 'รักษาชีวิตคนสำคัญและช่วยฝ่ายชาวบ้านกำจัดหมาป่าทั้งหมด',
+            'villager' => 'ร่วมกับผู้หยั่งรู้และผู้คุ้มกันถ้ามี กำจัดหมาป่าทั้งหมด',
+        });
     expect(is_file(public_path('images/roles/'.$role.'.png')))->toBeTrue();
 })->with(['werewolf', 'seer', 'guardian', 'villager']);
