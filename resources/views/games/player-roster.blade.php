@@ -3,14 +3,14 @@
     $latestVotes = collect($latestBallot['ballots'] ?? []);
 @endphp
 <div class="section-heading">
-    <h2 class="section-title">ผู้เล่น</h2>
-    <div class="section-count">{{ count($game['players']) }} Players</div>
+    <h2 class="section-title">โต๊ะหมู่บ้าน</h2>
+    <div class="section-count">{{ count($game['players']) }} คน</div>
 </div>
 @if ($latestBallot)
 <p class="action-description">ใครโหวตใคร · ผลรอบ {{ $latestBallot['round'] }} ครั้งที่ {{ $latestBallot['ballot'] }} (เปิดเผยหลังหมดเวลาโหวต)</p>
 @endif
 @if ($game['can_vote'])
-<p class="action-description">กดโหวตข้างชื่อผู้เล่นที่ต้องการให้ออก เปลี่ยนโหวตได้ก่อนหมดเวลา</p>
+<p class="action-description">แตะตัวละคร → กดโหวต · เปลี่ยนได้ก่อนหมดเวลา</p>
 @endif
 @if ($game['status'] === 'in_progress' && $game['current_phase'] === 'day_discussion')
                     <div class="section-card">
@@ -20,21 +20,25 @@
                             @csrf
                             <input type="hidden" name="expected_end_time" value="{{ $game['phase_end_time'] }}">
                             <button type="submit" class="btn-game" @disabled($game['my_discussion_skip'])>
-                                {{ $game['my_discussion_skip'] ? 'โหวตข้ามแล้ว — รอทุกคน' : 'Skip Discussion · โหวตข้ามพูดคุย' }}
+                                {{ $game['my_discussion_skip'] ? 'โหวตข้ามแล้ว — รอทุกคน' : 'คุยจบแล้ว · โหวตข้าม' }}
                             </button>
                         </form>
                         @endif
                     </div>
                     @endif
 
-<div class="players-grid" id="player-roster">
+<div class="round-table" aria-label="ผู้เล่นนั่งรอบโต๊ะ">
+    <div class="table-surface"><span>☀️</span><strong>รอบ {{ $game['current_round'] }}</strong><small>แตะตัวละคร<br>ดูข้อมูล · โหวต · กระซิบ</small></div>
+    <div class="players-grid table-seats" id="player-roster">
     @foreach ($game['players'] as $player)
     @php
+        $seatAngle = deg2rad(-90 + ($loop->index * 360 / count($game['players'])));
         $isCurrentPlayer = $player['player_uuid'] === session('player_uuid');
         $playerClass = $player['has_left'] ? 'left-player' : (! $player['is_alive'] ? 'dead' : '');
         $voters = $latestVotes->filter(fn ($vote) => array_key_exists('target_uuid', $vote)
             ? $vote['target_uuid'] === $player['player_uuid']
             : $vote['target'] === $player['name']);
+        $canWhisperTo = $game['status'] === 'finished' || ($game['status'] === 'in_progress' && (($viewerState['is_alive'] ?? true) === $player['is_alive']) && (! $player['is_alive'] || in_array($game['current_phase'], ['day_discussion', 'day_voting'], true)));
         $selected = $game['can_vote'] && $game['my_vote'] === $player['player_uuid'];
         $seerKnowledge = $game['my_role'] === 'seer'
             ? collect($game['my_seer_results'])->last(fn ($result) => isset($result['target_uuid'])
@@ -43,8 +47,16 @@
             : null;
 
     @endphp
-    <div class="player-card {{ $playerClass }} {{ $isCurrentPlayer ? 'you' : '' }} {{ $selected ? 'roster-selected' : '' }}" data-roster-player="{{ $player['player_uuid'] }}" style="flex-wrap:wrap">
-        <div class="player-avatar">{{ mb_substr($player['name'], 0, 1) }}</div>
+    <div class="player-card {{ $playerClass }} {{ $isCurrentPlayer ? 'you' : '' }} {{ $selected ? 'roster-selected' : '' }}" data-roster-player="{{ $player['player_uuid'] }}" style="--seat-x:{{ 50 + 40 * cos($seatAngle) }}%;--seat-y:{{ 50 + 37 * sin($seatAngle) }}%">
+        <button type="button" class="seat-open" data-seat-open="seat-{{ $player['player_uuid'] }}" aria-label="ดูผู้เล่น {{ $player['name'] }}{{ $isCurrentPlayer ? ' (คุณ)' : '' }}">
+            @include('games.avatar', ['avatar' => $player['avatar'] ?? null])
+            <span class="seat-name" title="{{ $player['name'] }}">{{ $player['name'] }}</span>
+            <span class="seat-state player-state-{{ $player['has_left'] ? 'left' : ($player['is_alive'] ? 'alive' : 'dead') }}">{{ $isCurrentPlayer ? 'คุณ · ' : '' }}{{ $player['has_left'] ? 'ออกแล้ว' : ($player['is_alive'] ? '●' : '☠') }}{{ $selected ? ' ✓' : '' }}</span>
+        </button>
+        <dialog id="seat-{{ $player['player_uuid'] }}" class="seat-dialog" aria-label="ข้อมูลผู้เล่น {{ $player['name'] }}">
+        <button type="button" class="seat-close" data-close-seat aria-label="ปิดข้อมูลผู้เล่น">✕</button>
+        @include('games.avatar', ['avatar' => $player['avatar'] ?? null])
+
         <div class="player-details">
             <div class="player-name">
                 {{ $player['name'] }}
@@ -72,8 +84,13 @@
             <button type="submit" class="btn-game" aria-label="โหวต {{ $player['name'] }}">{{ $selected ? '✓ โหวตแล้ว' : 'โหวต' }}</button>
         </form>
         @endif
+        @if (! $isCurrentPlayer && ! $player['has_left'])
+        <button type="button" class="look-button seat-whisper" data-whisper-to="{{ $player['player_uuid'] }}" @disabled(! $canWhisperTo)>🔒 กระซิบหา {{ $player['name'] }}</button>
+        @endif
+        </dialog>
     </div>
     @endforeach
+    </div>
 </div>
 @if ($game['can_vote'])
 <form method="POST" action="{{ route('games.vote', ['code' => $game['room_code']]) }}" class="action-area">

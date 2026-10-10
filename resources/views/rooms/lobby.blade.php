@@ -386,6 +386,7 @@
     }
     </style>
 
+    @include('games.social-style')
 </head>
 
 <body class="d-flex justify-content-center px-3 py-5">
@@ -544,68 +545,30 @@
 
                 </div>
 
-                <div class="d-flex flex-column gap-2">
-
+                <div class="round-table lobby-table" aria-label="ผู้เล่นนั่งรอบโต๊ะ">
+                    <div class="table-surface"><span>🍵</span><strong>ห้อง {{ $room['code'] }}</strong><small>{{ count($room['players']) }} / {{ $room['player_limit'] }} คน<br>แต่งตัว → กดพร้อม → เริ่มเกม</small></div>
+                    <div class="table-seats">
                     @foreach ($room['players'] as $player)
-
-                    <div class="player-item p-3">
-
-                        <div class="d-flex align-items-center justify-content-between gap-3">
-
-                            <div class="d-flex align-items-center gap-3">
-
-                                <div class="avatar {{
-                                    $loop->index % 2 === 0
-                                    ? 'avatar-host'
-                                    : 'avatar-player'
-                                }}">
-                                    {{ mb_strtoupper(mb_substr($player['name'], 0, 1, 'UTF-8'), 'UTF-8') }}
-                                </div>
-
-                                <div>
-
-                                    <div class="player-name">
-
-                                        {{ $player['name'] }}
-
-                                        @if ($player['player_uuid'] === session('player_uuid'))
-
-                                        <span class="player-you {{
-                                            $loop->index % 2 === 0
-                                            ? 'purple'
-                                            : 'blue'
-                                        }}">
-                                            (คุณ)
-                                        </span>
-
-                                        @endif
-
-                                    </div>
-
-                                </div>
-
-                            </div>
-
-                            @if (
-                            $player['player_uuid'] === $room['host_uuid']
-                            )
-
-                            <span class="host-badge">
-                                HOST
-                            </span>
-
-                            @endif
-                            <span class="badge {{ $player['is_ready'] ? 'bg-success' : 'bg-secondary' }}">
-                                {{ $player['is_ready'] ? 'พร้อมแล้ว' : 'ยังไม่พร้อม' }}
-                            </span>
-
+                    @php
+                        $seatAngle = deg2rad(-90 + ($loop->index * 360 / $room['player_limit']));
+                    @endphp
+                    <div class="player-card {{ $player['player_uuid'] === session('player_uuid') ? 'you' : '' }}" style="--seat-x:{{ 50 + 40 * cos($seatAngle) }}%;--seat-y:{{ 50 + 39 * sin($seatAngle) }}%">
+                        <div class="seat-open">
+                            @include('games.avatar', ['avatar' => $player['avatar'] ?? null])
+                            <span class="seat-name" title="{{ $player['name'] }}">{{ $player['name'] }}</span>
+                            <span class="seat-state">{{ $player['player_uuid'] === session('player_uuid') ? 'คุณ · ' : '' }}{{ $player['is_ready'] ? '✓ พร้อม' : 'รอพร้อม' }}</span>
                         </div>
-
                     </div>
-
                     @endforeach
-
+                    @for ($seat = count($room['players']); $seat < $room['player_limit']; $seat++)
+                    @php
+                        $seatAngle = deg2rad(-90 + ($seat * 360 / $room['player_limit']));
+                    @endphp
+                    <div class="player-card empty-seat" style="--seat-x:{{ 50 + 40 * cos($seatAngle) }}%;--seat-y:{{ 50 + 39 * sin($seatAngle) }}%"><span>＋</span><small>รอเพื่อน</small></div>
+                    @endfor
+                    </div>
                 </div>
+
 
             </div>
 
@@ -626,6 +589,8 @@
                 <small>พร้อม {{ collect($room['players'])->where('is_ready', true)->count() }} / {{ $room['player_limit'] }} คน</small>
                 <div id="lobby-poll-status" class="mt-2"></div>
             </div>
+
+            @include('rooms.avatar-picker')
 
             {{-- actions --}}
             @if (
@@ -652,7 +617,7 @@
                     @csrf
                     <input type="hidden" name="ready" value="{{ $me['is_ready'] ? '0' : '1' }}">
                     <button type="submit" class="btn btn-start w-100">
-                        {{ $me['is_ready'] ? 'ยกเลิกพร้อม' : 'พร้อม' }}
+                        {{ $me['is_ready'] ? 'ยกเลิกพร้อม' : '✓ พร้อมเล่น' }}
                     </button>
                 </form>
 
@@ -793,7 +758,7 @@
         const endpoint = @json(route('rooms.advance-start', ['code' => $room['code']]));
         const csrf = document.querySelector('meta[name="csrf-token"]').content;
         const originalPlayers = @json($room['players']);
-        const fingerprint = players => JSON.stringify(players.map(p => [p.player_uuid, p.is_ready]));
+        const fingerprint = players => JSON.stringify(players.map(p => [p.player_uuid, p.is_ready, p.avatar]));
         const initialFingerprint = fingerprint(originalPlayers);
         let deadline = @json($room['start_countdown_at']);
         let serverTime = Date.parse(@json($room['server_time']));

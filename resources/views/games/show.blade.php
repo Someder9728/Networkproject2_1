@@ -1817,6 +1817,8 @@
 
 
     @include('games.dashboard-style')
+    @include('games.social-style')
+    @include('games.role-drawer-style')
 </head>
 
 @php
@@ -2028,6 +2030,7 @@
                     </div>
 
 
+@include('games.play-guide')
 <div data-dash-zone="rules">
                     {{-- game information --}}
                     <div class="info-grid">
@@ -2080,81 +2083,7 @@
                     @include('games.expansion')
 
 </div>
-<div data-dash-zone="role">
-                    {{-- player role --}}
-                    @if ($game['my_role'] !== null)
-
-                    <div class="role-banner role-{{ $game['my_role'] }}">
-
-                        <div class="role-label">
-                            YOUR ROLE
-                        </div>
-
-                        <div class="role-name role-{{ $game['my_role'] }}">
-                            {{ $roleLabels[$game['my_role']] ?? 'ไม่ทราบบทบาท' }}
-                        </div>
-
-                    </div>
-
-                    @endif
-
-
-                    @include('games.role-guide')
-
-                    {{-- werewolf teammates --}}
-                    @if ($game['my_role'] === 'werewolf')
-
-                    <div class="action-panel mb-3">
-
-                        <div class="action-title">
-                            หมาป่าร่วมทีม
-                        </div>
-
-                        @forelse ($game['werewolf_teammates'] as $teammate)
-
-                        <div class="player-card mb-2">
-
-                            <div class="player-avatar">
-                                {{ mb_substr($teammate['name'], 0, 1) }}
-                            </div>
-
-                            <div class="player-details">
-
-                                <div class="player-name">
-                                    {{ $teammate['name'] }}
-                                </div>
-
-                                <div class="player-status">
-
-                                    @if ($teammate['has_left'])
-                                    ออกจากเกมแล้ว
-                                    @elseif (!$teammate['is_alive'])
-                                    <span style="color: red;">เสียชีวิต</span>
-                                    @else
-                                    มีชีวิต
-                                    @endif
-
-                                </div>
-
-                            </div>
-
-                        </div>
-
-                        @empty
-
-                        <div class="alert-game">
-                            คุณเป็นหมาป่าเพียงคนเดียว
-                        </div>
-
-                        @endforelse
-
-                    </div>
-
-                    @endif
-
-
-</div>
-<div data-dash-zone="players">
+<div data-dash-zone="players" class="table-zone">
                     @include('games.player-roster')
 
 </div>
@@ -2777,6 +2706,8 @@
         </div>
 
     </main>
+
+    @include('games.role-drawer')
 
     <div id="leave-game-modal" class="game-modal">
         <div class="game-modal-card">

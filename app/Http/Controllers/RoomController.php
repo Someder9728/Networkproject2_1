@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\GameLogic\DifficultyConfig;
 use App\Services\GameService;
 use App\Services\RoomService;
+use App\Support\AvatarCatalog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -48,6 +49,21 @@ class RoomController extends Controller
         $roomService->setReady($code, $playerUuid, $request->boolean('ready'));
 
         return redirect()->route('rooms.show', ['code' => strtoupper($code)]);
+    }
+
+    public function avatar(Request $request, RoomService $rooms, string $code): RedirectResponse
+    {
+        $uuid = $request->session()->get('player_uuid');
+        abort_unless(is_string($uuid) && $uuid !== '', 403);
+        $avatar = $request->validate([
+            'character' => ['required', Rule::in(array_keys(AvatarCatalog::CHARACTERS))],
+            'face' => ['required', Rule::in(array_keys(AvatarCatalog::FACES))],
+            'accessory' => ['required', Rule::in(array_keys(AvatarCatalog::ACCESSORIES))],
+            'color' => ['required', Rule::in(array_keys(AvatarCatalog::COLORS))],
+        ]);
+        $rooms->updateAvatar($code, $uuid, $avatar);
+
+        return redirect()->route('rooms.show', ['code' => strtoupper($code)])->with('success', 'บันทึกหน้าตาแล้ว กดพร้อมเมื่อพร้อมเล่น');
     }
 
     public function advanceStart(Request $request, RoomService $roomService, string $code): JsonResponse

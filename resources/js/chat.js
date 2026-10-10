@@ -15,12 +15,25 @@ export function initRoomChat(roomCode, csrfToken, playerName) {
 
     const url = `/rooms/${encodeURIComponent(roomCode)}/chat`;
 
+    const recipientLabel = document.createElement('label');
+    recipientLabel.className = 'chat-recipient';
+    const recipientTitle = document.createElement('span');
+    recipientTitle.textContent = 'ส่งถึง';
+    const recipientSelect = document.createElement('select');
+    recipientSelect.setAttribute('aria-label', 'เลือกผู้รับข้อความ');
+    const privateNote = document.createElement('div');
+    privateNote.className = 'chat-private-note';
+    recipientLabel.append(recipientTitle, recipientSelect);
+    form.before(recipientLabel, privateNote);
+    let recipients = [];
+    let recipient = null;
     let channels = [];
     let currentChannel = "all";
     let requestNumber = 0;
     let sending = false;
 
     function setActiveChannel(channel) {
+        if (currentChannel !== channel) recipient = null;
         currentChannel = channel;
         window.dispatchEvent(new CustomEvent("game:chat-channel", {detail: {channel}}));
 
@@ -36,7 +49,28 @@ export function initRoomChat(roomCode, csrfToken, playerName) {
         return channels.find((item) => item.name === currentChannel);
     }
 
+    function canSend() {
+        const connected = window.Echo?.connector?.pusher?.connection?.state === 'connected';
+        return connected && !sending && (recipient ? currentChannel === 'all' && recipients.some(person => person.uuid === recipient) : getCurrentChannel()?.can_send);
+    }
+
+    function renderRecipients() {
+        recipientLabel.hidden = currentChannel !== 'all';
+        recipientSelect.replaceChildren();
+        recipientSelect.add(new Option('ทุกคน · แชทรวม', ''));
+        for (const person of recipients) recipientSelect.add(new Option(`🔒 กระซิบ: ${person.name}`, person.uuid));
+        if (recipient && !recipients.some(person => person.uuid === recipient)) recipientSelect.add(new Option('ผู้รับไม่พร้อมรับข้อความ · เลือกใหม่', recipient));
+        recipientSelect.value = recipient ?? '';
+        recipientSelect.disabled = sending;
+        recipientLabel.classList.toggle('private', Boolean(recipient));
+        document.querySelectorAll('[data-whisper-to]').forEach(button => {button.disabled = !recipients.some(person => person.uuid === button.dataset.whisperTo);});
+        const person = recipients.find(person => person.uuid === recipient);
+        privateNote.textContent = recipient ? (person ? `ส่วนตัวกับ ${person.name} · เห็นเฉพาะคุณสองคน` : 'ส่งไม่ได้ในช่วงนี้ เลือกผู้รับใหม่ก่อนส่ง') : (currentChannel === 'all' ? 'ข้อความถึงทุกคน ส่วนกระซิบเลือกชื่อผู้รับด้านบน' : 'ข้อความจะส่งในช่องที่เลือก');
+        input.placeholder = recipient ? 'พิมพ์ข้อความส่วนตัว…' : 'พิมพ์ข้อความ…';
+    }
+
     function render() {
+        renderRecipients();
         const channel = getCurrentChannel();
 
         const existingAudio = new Map([...list.querySelectorAll('audio[data-message-id]')].map(audio => [audio.dataset.messageId, audio]));
@@ -68,6 +102,17 @@ export function initRoomChat(roomCode, csrfToken, playerName) {
 
             bubble.className = "chat-message-bubble";
             bubble.textContent = message.content;
+            if (message.is_private) {
+                bubble.classList.add('private');
+                const label = document.createElement('span');
+                label.className = 'chat-private-label';
+                label.textContent = isMine ? `🔒 คุณ → ${message.recipient_name ?? 'ผู้เล่น'} · ส่วนตัว` : `🔒 ${message.sender_name} → คุณ · ส่วนตัว`;
+                bubble.prepend(label);
+                const reply = document.createElement('button');
+                reply.type = 'button'; reply.className = 'chat-private-label'; reply.textContent = 'ตอบกระซิบ';
+                reply.addEventListener('click', () => selectRecipient(isMine ? message.recipient_uuid : message.sender_uuid));
+                bubble.append(reply);
+            }
             if (message.audio_url) {
                 const audio = existingAudio.get(String(message.id)) ?? document.createElement('audio');
                 audio.dataset.messageId = String(message.id);
@@ -82,10 +127,7 @@ export function initRoomChat(roomCode, csrfToken, playerName) {
             list.appendChild(item);
         }
 
-        const connected =
-            window.Echo?.connector?.pusher?.connection?.state === "connected";
-
-        input.disabled = !connected || !channel?.can_send || sending;
+        input.disabled = !canSend();
 
         submit.disabled = input.disabled;
 
@@ -128,6 +170,7 @@ export function initRoomChat(roomCode, csrfToken, playerName) {
             }
 
             channels = data.channels ?? [];
+            recipients = data.recipients ?? [];
             window.dispatchEvent(new CustomEvent("game:chat-update", {detail: {channels, currentChannel}}));
 
             const currentChannelExists = channels.some(
@@ -217,6 +260,7 @@ export function initRoomChat(roomCode, csrfToken, playerName) {
                 body: JSON.stringify({
                     channel: currentChannel,
                     message,
+                    recipient_uuid: recipient,
                 }),
             });
 
@@ -238,8 +282,29 @@ export function initRoomChat(roomCode, csrfToken, playerName) {
         }
     });
 
+    function selectRecipient(uuid) {
+        if (!recipients.some(person => person.uuid === uuid)) {
+            feedback.textContent = 'กระซิบหาคนนี้ไม่ได้ในช่วงนี้ (คนเป็นกับคนตายคุยข้ามกันไม่ได้ และคนเป็นกระซิบได้ตอนกลางวัน)';
+            return;
+        }
+        setActiveChannel('all');
+        recipient = uuid;
+        render();
+        feedback.textContent = '';
+        input.focus();
+    }
+    recipientSelect.addEventListener('change', () => {
+        recipient = recipientSelect.value || null;
+        feedback.textContent = '';
+        render();
+        input.focus();
+    });
+    window.addEventListener('game:whisper-select', async event => {
+        await refresh(false);
+        selectRecipient(event.detail.uuid);
+    });
     setActiveChannel("all");
 
-    initChatExtras({form, input, url, csrfToken, channel: () => currentChannel, canSend: () => !input.disabled, refresh});
+    initChatExtras({form, input, url, csrfToken, channel: () => currentChannel, canSend, recipient: () => recipient, refresh});
     return refresh;
 }

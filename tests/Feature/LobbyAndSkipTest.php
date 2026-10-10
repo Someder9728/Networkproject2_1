@@ -99,7 +99,7 @@ it('uses the configurable server countdown duration in the deadline and page', f
 
 it('requires unanimous discussion skip and counts each player once', function () {
     [$service, $code, $uuids, $deadline] = prepareSkipGame('day_discussion');
-    $this->withoutVite()->withSession(['player_uuid' => $uuids[0]])->get(route('games.show', ['code' => $code]))->assertOk()->assertSee('Skip Discussion');
+    $this->withoutVite()->withSession(['player_uuid' => $uuids[0]])->get(route('games.show', ['code' => $code]))->assertOk()->assertSee('คุยจบแล้ว · โหวตข้าม');
     $service->skipDiscussion($code, $uuids[0], $deadline);
     $service->skipDiscussion($code, $uuids[0], $deadline);
     expect($service->getGameView($code, $uuids[0])['discussion_skip_count'])->toBe(1);

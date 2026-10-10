@@ -98,7 +98,7 @@ function initGameNotifications() {
         // Channels come only from the authorized chat endpoint; removed channels lose their badges.
         unread = Object.fromEntries(event.detail.channels.map(c => [c.name, unread[c.name] ?? 0]));
         write('chat-highs', highs); render();
-        if (newest) { notice(`${newest.message.sender_name}: ${newest.message.content}`, newest.channel); beep(); }
+        if (newest) { notice(`${newest.message.is_private ? '🔒 กระซิบ · ' : ''}${newest.message.sender_name}: ${newest.message.content}`, newest.channel); beep(); }
     });
     document.addEventListener('visibilitychange', render);
     const labels = {day_discussion: 'เช้า ช่วงพูดคุย', day_voting: 'กลางวัน ช่วงลงคะแนน', night: 'กลางคืน', game_over: 'จบเกม'};

@@ -48,6 +48,7 @@ class ChatController extends Controller
 
         $validated = $request->validate([
             'channel' => ['required', 'in:all,werewolf,dead'],
+            'recipient_uuid' => ['nullable', 'uuid'],
             'message' => ['required', 'string', 'max:1000'],
         ]);
 
@@ -55,7 +56,8 @@ class ChatController extends Controller
             $code,
             $uuid,
             $validated['channel'],
-            $validated['message']
+            $validated['message'],
+            recipientUuid: $validated['recipient_uuid'] ?? null
         );
 
         return response()->json(['saved' => true], 201);
@@ -63,19 +65,19 @@ class ChatController extends Controller
 
     public function typing(Request $request, ChatService $chat, string $code): JsonResponse
     {
-        $data = $request->isMethod('post') ? $request->validate(['channel' => 'required|in:all,werewolf,dead', 'active' => 'required|boolean']) : [];
+        $data = $request->isMethod('post') ? $request->validate(['channel' => 'required|in:all,werewolf,dead', 'active' => 'required|boolean', 'recipient_uuid' => 'nullable|uuid']) : [];
 
-        return response()->json(['typing' => $chat->typing($code, $this->playerUuid($request), $data['channel'] ?? null, $data['active'] ?? false)])->header('Cache-Control', 'no-store');
+        return response()->json(['typing' => $chat->typing($code, $this->playerUuid($request), $data['channel'] ?? null, $data['active'] ?? false, $data['recipient_uuid'] ?? null)])->header('Cache-Control', 'no-store');
     }
 
     public function voice(Request $request, ChatService $chat, string $code): JsonResponse
     {
         $uuid = $this->playerUuid($request);
-        $data = $request->validate(['channel' => 'required|in:all,werewolf,dead', 'audio' => 'required|file|mimetypes:audio/webm,video/webm,audio/ogg,video/ogg,audio/mp4,video/mp4|max:2048']);
+        $data = $request->validate(['channel' => 'required|in:all,werewolf,dead', 'recipient_uuid' => 'nullable|uuid', 'audio' => 'required|file|mimetypes:audio/webm,video/webm,audio/ogg,video/ogg,audio/mp4,video/mp4|max:2048']);
         $file = $request->file('audio');
         $path = $file->store('chat-audio', 'local');
         try {
-            $chat->send($code, $uuid, $data['channel'], '[ข้อความเสียง]', $path, $file->getMimeType());
+            $chat->send($code, $uuid, $data['channel'], '[ข้อความเสียง]', $path, $file->getMimeType(), $data['recipient_uuid'] ?? null);
         } catch (\Throwable $exception) {
             Storage::disk('local')->delete($path);
             throw $exception;

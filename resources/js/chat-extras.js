@@ -1,6 +1,6 @@
 import QRCode from 'qrcode';
 
-export function initChatExtras({form, input, url, csrfToken, channel, canSend, refresh}) {
+export function initChatExtras({form, input, url, csrfToken, channel, canSend, recipient, refresh}) {
     const typing = document.createElement('div');
     typing.setAttribute('aria-live', 'polite');
     typing.style.cssText = 'min-height:20px;font-size:12px;color:#94a3b8';
@@ -9,7 +9,7 @@ export function initChatExtras({form, input, url, csrfToken, channel, canSend, r
     const headers = {'Accept':'application/json','X-CSRF-TOKEN':csrfToken};
     async function signal(active) {
         if (!canSend()) return;
-        try { await fetch(`${url}/typing`, {method:'POST', credentials:'same-origin',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({channel:channel(),active})}); } catch {}
+        try { await fetch(`${url}/typing`, {method:'POST', credentials:'same-origin',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({channel:channel(),active,recipient_uuid:recipient()})}); } catch {}
     }
     input.addEventListener('input', () => {if (Date.now()-lastTyping > 2000 || !input.value) {lastTyping=Date.now();signal(Boolean(input.value));}});
     input.addEventListener('blur', () => signal(false));
@@ -19,12 +19,16 @@ export function initChatExtras({form, input, url, csrfToken, channel, canSend, r
         if (polling || document.hidden) return;
         polling = true;
         const selected = channel();
+        const selectedRecipient = recipient();
         try {
             const response = await fetch(`${url}/typing`, {credentials:'same-origin',headers,cache:'no-store'});
-            if (response.ok && selected === channel()) { const data=await response.json(); const names=data.typing?.[selected] ?? []; typing.textContent=names.length ? `${names.join(', ')} กำลังพิมพ์…` : ''; }
+            if (response.ok && selected === channel() && selectedRecipient === recipient()) { const data=await response.json(); const names=selectedRecipient ? (data.typing?.private ?? []).filter(person => person.uuid === selectedRecipient).map(person => person.name) : (data.typing?.[selected] ?? []);
+                const privateNames=selected === 'all' && !selectedRecipient ? (data.typing?.private ?? []).map(person => person.name) : [];
+                typing.textContent=[names.length ? `${names.join(', ')} กำลังพิมพ์…` : '',privateNames.length ? `${privateNames.join(', ')} กำลังกระซิบถึงคุณ…` : ''].filter(Boolean).join(' · '); }
         } catch {} finally {polling=false;}
     }, 2500);
     const box = document.createElement('div');
+    box.className='voice-controls';
     box.style.cssText='display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 0';
     const record = document.createElement('button'); record.type='button';record.textContent='🎙 อัดเสียง';
     const send = document.createElement('button');send.type='button';send.textContent='ส่งเสียง';send.hidden=true;
@@ -32,7 +36,7 @@ export function initChatExtras({form, input, url, csrfToken, channel, canSend, r
     const preview = document.createElement('audio');preview.controls=true;preview.hidden=true;preview.style.cssText='width:100%;height:36px';
     const status = document.createElement('span');status.setAttribute('aria-live','polite');status.style.fontSize='12px';
     box.append(record,send,cancel,status,preview);form.after(box);
-    let recorder, stream, chunks=[], blob, objectUrl, timer, elapsed, recordedChannel, busy=false, cancelled=false;
+    let recorder, stream, chunks=[], blob, objectUrl, timer, elapsed, recordedChannel, recordedRecipient, busy=false, cancelled=false;
     function clear() {
         clearInterval(timer);stream?.getTracks().forEach(track=>track.stop());stream=null;
         if (objectUrl) URL.revokeObjectURL(objectUrl);
@@ -47,7 +51,7 @@ export function initChatExtras({form, input, url, csrfToken, channel, canSend, r
         try {
             stream=await navigator.mediaDevices.getUserMedia({audio:true});
             if (!canSend()) {clear();return;}
-            recordedChannel=channel();cancelled=false;chunks=[];elapsed=0;
+            recordedChannel=channel();recordedRecipient=recipient();cancelled=false;chunks=[];elapsed=0;
             const mime=['audio/webm;codecs=opus','audio/ogg;codecs=opus','audio/mp4'].find(type=>MediaRecorder.isTypeSupported(type));
             recorder=new MediaRecorder(stream,mime ? {mimeType:mime} : undefined);
             recorder.ondataavailable=event=>{if(event.data.size)chunks.push(event.data);};
@@ -66,9 +70,9 @@ export function initChatExtras({form, input, url, csrfToken, channel, canSend, r
     cancel.addEventListener('click',()=>{cancelled=true;if(recorder?.state==='recording')recorder.stop();else clear();status.textContent='';});
     send.addEventListener('click',async()=>{
         if (!blob || busy) return;
-        if(!canSend() || channel()!==recordedChannel){status.textContent='ช่องแชทหรือเฟสเปลี่ยนแล้ว กรุณาอัดใหม่';return;}
+        if(!canSend() || channel()!==recordedChannel || recipient()!==recordedRecipient){status.textContent='ช่องแชทหรือเฟสเปลี่ยนแล้ว กรุณาอัดใหม่';return;}
         busy=true;send.disabled=true;record.disabled=true;cancel.disabled=true;preview.pause();
-        const data=new FormData();data.append('channel',recordedChannel);data.append('audio',blob,blob.type.includes('mp4')?'voice.mp4':blob.type.includes('ogg')?'voice.ogg':'voice.webm');
+        const data=new FormData();data.append('channel',recordedChannel);if(recordedRecipient)data.append('recipient_uuid',recordedRecipient);data.append('audio',blob,blob.type.includes('mp4')?'voice.mp4':blob.type.includes('ogg')?'voice.ogg':'voice.webm');
         try {const response=await fetch(`${url}/voice`,{method:'POST',credentials:'same-origin',headers,body:data});if(!response.ok)throw Error();clear();status.textContent='ส่งเสียงแล้ว';await refresh(false);}
         catch {status.textContent='ส่งเสียงไม่สำเร็จ กรุณาลองอีกครั้ง';}
         finally{busy=false;send.disabled=false;record.disabled=false;cancel.disabled=false;}

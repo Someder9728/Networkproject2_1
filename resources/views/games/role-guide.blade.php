@@ -8,18 +8,27 @@
     $guide = $roleGuides[$game['my_role']] ?? null;
 @endphp
 @if ($guide)
-<div class="section-card role-{{ $game['my_role'] }}" style="display:flex;gap:20px;flex-wrap:wrap;align-items:center">
-    <img src="{{ asset('images/roles/'.$game['my_role'].'.png') }}" alt="ภาพบทบาท{{ $roleLabels[$game['my_role']] }}" width="180" height="180" style="border-radius:16px;object-fit:cover;max-width:100%">
-    <div style="flex:1;min-width:200px">
-        <div class="action-title">คุณคือ {{ $roleLabels[$game['my_role']] }}</div>
-        <p><strong>หน้าที่:</strong> {{ $guide['หน้าที่'] }}</p>
-        @if ($game['my_role'] === 'seer')
-        <p>ตรวจได้ {{ $game['my_seer_checks_limit'] ?? 'ไม่จำกัด' }} ครั้งต่อคืน</p>
-        @endif
-        <p><strong>เป้าหมายเพื่อชนะ:</strong> {{ $guide['เป้าหมาย'] }}</p>
-        @if ($game['game_mode'] === 'short')
-        <p>โหมดสั้น: หากยังไม่มีผู้ชนะเมื่อครบจำนวนรอบหรือหมดเวลารวม ฝ่ายชาวบ้านชนะ</p>
-        @endif
+<article class="werewolf-role-card role-card-{{ $game['my_role'] }}" aria-label="การ์ดบทบาท{{ $roleLabels[$game['my_role']] }}">
+    <div class="role-card-topline"><span>WEREWOLF</span><span>{{ $game['my_role'] === 'werewolf' ? 'ฝ่ายหมาป่า' : 'ฝ่ายชาวบ้าน' }}</span></div>
+    <div class="role-card-art">
+        <img src="{{ asset('images/roles/'.$game['my_role'].'.png') }}" alt="ภาพบทบาท{{ $roleLabels[$game['my_role']] }}" width="320" height="260">
+        <span class="role-card-seal" aria-hidden="true">{{ ['werewolf' => '☾', 'seer' => '✧', 'guardian' => '◇', 'villager' => '☀'][$game['my_role']] ?? '✧' }}</span>
     </div>
-</div>
+    <div class="role-card-body">
+        <span class="role-card-caption">คุณคือ</span>
+        <h3 class="role-card-title">{{ $roleLabels[$game['my_role']] }}</h3>
+        <div class="role-card-rule" aria-hidden="true">✦</div>
+        <section class="role-card-description"><h4>หน้าที่</h4><p>{{ $guide['หน้าที่'] }}</p></section>
+        @if ($game['my_role'] === 'seer')
+        <p class="role-card-limit">ตรวจได้ {{ $game['my_seer_checks_limit'] ?? 'ไม่จำกัด' }} ครั้งต่อคืน</p>
+        @endif
+        <section class="role-card-win"><h4>เป้าหมายเพื่อชนะ</h4><p>{{ $guide['เป้าหมาย'] }}</p></section>
+        @if ($game['game_mode'] === 'short')
+        <p class="role-card-short">โหมดสั้น: หากยังไม่มีผู้ชนะเมื่อครบจำนวนรอบหรือหมดเวลารวม ฝ่ายชาวบ้านชนะ</p>
+        @endif
+        <div class="role-card-bottomline" aria-hidden="true">✦ &nbsp; WEREWOLF ONLINE &nbsp; ✦</div>
+    </div>
+</article>
+@else
+<p class="dashboard-empty">กำลังแจกบทบาท กรุณารอสักครู่</p>
 @endif

@@ -5,6 +5,7 @@ namespace App\Services;
 use App\GameLogic\DifficultyConfig;
 use App\Models\Player;
 use App\Models\Room;
+use App\Support\AvatarCatalog;
 use App\Support\RoomLock;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -94,6 +95,7 @@ class RoomDatabaseService
                     'player_id' => $player->player_id,
                     'player_uuid' => $player->player_uuid,
                     'name' => $player->player_name,
+                    'avatar' => AvatarCatalog::normalize($player->avatar),
                     'is_ready' => $player->is_ready,
                 ]
             )->all(),

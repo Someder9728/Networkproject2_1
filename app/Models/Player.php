@@ -5,6 +5,9 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * @property array<string, string>|null $avatar Cosmetic settings stored as JSON.
+ */
 class Player extends Model
 {
     protected $primaryKey = 'player_id';
@@ -19,6 +22,7 @@ class Player extends Model
         'rooms_room_id',
         'has_left',
         'is_ready',
+        'avatar',
     ];
 
     protected $hidden = [
@@ -36,6 +40,7 @@ class Player extends Model
             'is_connected' => 'boolean',
             'has_left' => 'boolean',
             'is_ready' => 'boolean',
+            'avatar' => 'array',
         ];
     }
 

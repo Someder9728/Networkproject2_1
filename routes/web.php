@@ -126,3 +126,5 @@ Route::post('/rooms/{code}/game/trial', [MatchController::class, 'trial'])->name
 Route::match(['get', 'post'], '/rooms/{code}/chat/typing', [ChatController::class, 'typing'])->middleware('throttle:game-chat-read');
 Route::post('/rooms/{code}/chat/voice', [ChatController::class, 'voice'])->middleware('throttle:game-chat-send');
 Route::get('/rooms/{code}/chat/{message}/audio', [ChatController::class, 'audio'])->whereNumber('message')->middleware('throttle:game-chat-read')->name('rooms.chat.audio');
+
+Route::post('/rooms/{code}/avatar', [RoomController::class, 'avatar'])->middleware('throttle:game-chat-send')->name('rooms.avatar');

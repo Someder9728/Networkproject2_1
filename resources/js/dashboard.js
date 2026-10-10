@@ -5,7 +5,7 @@ function initDashboard() {
     const board = document.createElement('div');
     board.className = 'dashboard-board';
     board.dataset.mobileView = 'players';
-    board.innerHTML = `<section class="dashboard-roster" aria-label="ผู้เล่นและการโหวต"></section><section class="dashboard-right"><nav class="dashboard-tabs" role="tablist" aria-label="ข้อมูลเกม"><button type="button" class="dashboard-tab dashboard-mobile-players" data-tab="players" role="tab" aria-controls="dashboard-players">ผู้เล่น</button>${[['actions','เล่น / แก้ต่าง'],['role','Role ของคุณ'],['results','ผล / หลักฐาน'],['rules','กติกา']].map(([id,label]) => `<button type="button" class="dashboard-tab" data-tab="${id}" id="tab-${id}" role="tab" aria-controls="dashboard-${id}">${label}</button>`).join('')}</nav>${['actions','role','results','rules'].map(id => `<section class="dashboard-pane" id="dashboard-${id}" role="tabpanel" aria-labelledby="tab-${id}" tabindex="0" hidden></section>`).join('')}</section>`;
+    board.innerHTML = `<section class="dashboard-roster" aria-label="ผู้เล่นและการโหวต"></section><section class="dashboard-right"><nav class="dashboard-tabs" role="tablist" aria-label="ข้อมูลเกม"><button type="button" class="dashboard-tab dashboard-mobile-players" data-tab="players" role="tab" aria-controls="dashboard-players">ผู้เล่น</button>${[['actions','สิ่งที่ต้องทำ'],['results','ผลที่ผ่านมา'],['rules','กติกา']].map(([id,label]) => `<button type="button" class="dashboard-tab" data-tab="${id}" id="tab-${id}" role="tab" aria-controls="dashboard-${id}">${label}</button>`).join('')}</nav>${['actions','results','rules'].map(id => `<section class="dashboard-pane" id="dashboard-${id}" role="tabpanel" aria-labelledby="tab-${id}" tabindex="0" hidden></section>`).join('')}</section>`;
     const roster = board.querySelector('.dashboard-roster');
     roster.id = 'dashboard-players';
     for (const zone of zones) {
@@ -36,9 +36,10 @@ function initDashboard() {
     }
     const phaseKey = `${document.body.dataset.gameRound}:${document.body.dataset.gamePhase}:${document.body.dataset.gameStage}`;
     const key = `dashboard-tab:${document.body.dataset.gameId}:${phaseKey}`;
-    let initial = 'actions';
-    try { initial = sessionStorage.getItem(key) || 'actions'; } catch {}
-    if (!['actions','role','results','rules','players'].includes(initial)) initial = 'actions';
+    const useTable = ['day_discussion','day_voting'].includes(document.body.dataset.gamePhase) && !['defense','verdict'].includes(document.body.dataset.gameStage);
+    let initial = window.innerWidth <= 760 && useTable ? 'players' : 'actions';
+    try { initial = sessionStorage.getItem(key) || initial; } catch {}
+    if (!['actions','results','rules','players'].includes(initial)) initial = 'actions';
     if (initial === 'players' && window.innerWidth > 760) initial = 'actions';
     board.querySelectorAll('[data-tab]').forEach(button => {
         button.addEventListener('click', () => { activate(button.dataset.tab); try { sessionStorage.setItem(key, button.dataset.tab); } catch {} });

@@ -14,6 +14,7 @@ use App\GameLogic\RandomEvent;
 use App\GameLogic\RoleAbility;
 use App\Models\Room;
 use App\Models\VoteAction;
+use App\Support\AvatarCatalog;
 use App\Support\RoomLock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
@@ -189,6 +190,23 @@ class RoomService
         });
     }
 
+    public function updateAvatar(string $code, string $uuid, array $avatar): void
+    {
+        $code = strtoupper(trim($code));
+        RoomLock::make($code, 10)->block(3, function () use ($code, $uuid, $avatar) {
+            DB::transaction(function () use ($code, $uuid, $avatar) {
+                $room = Room::where('room_code', $code)->firstOrFail();
+                $player = $room->players()->where('player_uuid', $uuid)->where('has_left', false)->first();
+                abort_unless($player !== null, 403);
+                if ($room->game_uuid !== null || $room->room_status !== 'waiting' || $player->is_ready) {
+                    throw ValidationException::withMessages(['avatar' => 'ยกเลิกพร้อมก่อนเปลี่ยนหน้าตา และเลือกได้ก่อนเริ่มเกมเท่านั้น']);
+                }
+                $player->update(['avatar' => AvatarCatalog::normalize($avatar)]);
+                DB::afterCommit(fn () => $this->broadcastRoomUpdated($code));
+            });
+        });
+    }
+
     public function advanceLobby(string $code): void
     {
         $room = $this->getRoom($code);
@@ -234,6 +252,7 @@ class RoomService
                 ->map(fn (array $player) => [
                     'player_uuid' => $player['player_uuid'],
                     'name' => $player['name'],
+                    'avatar' => AvatarCatalog::normalize($player['avatar'] ?? null),
                     'is_alive' => $player['is_alive'],
                     'has_left' => $player['has_left'] ?? false,
                     'is_connected' => $player['is_connected'] ?? true,
@@ -301,6 +320,7 @@ class RoomService
                 ->map(fn (array $player) => [
                     'player_uuid' => $player['player_uuid'],
                     'name' => $player['name'],
+                    'avatar' => AvatarCatalog::normalize($player['avatar'] ?? null),
                 ])
                 ->values()
                 ->all();
@@ -344,6 +364,7 @@ class RoomService
                 ->map(fn (array $player) => [
                     'player_uuid' => $player['player_uuid'],
                     'name' => $player['name'],
+                    'avatar' => AvatarCatalog::normalize($player['avatar'] ?? null),
                 ])
                 ->values()
                 ->all();
@@ -420,6 +441,7 @@ class RoomService
                 fn (array $player) => [
                     'player_uuid' => $player['player_uuid'],
                     'name' => $player['name'],
+                    'avatar' => AvatarCatalog::normalize($player['avatar'] ?? null),
                     'is_alive' => $player['is_alive'],
                     'has_left' => $player['has_left'] ?? false,
                     'is_connected' => $player['is_connected'] ?? true,
@@ -474,6 +496,7 @@ class RoomService
                         fn (array $player) => [
                             'player_uuid' => $player['player_uuid'],
                             'name' => $player['name'],
+                            'avatar' => AvatarCatalog::normalize($player['avatar'] ?? null),
                             'role' => $player['role'],
                             'is_alive' => $player['is_alive'],
                             'has_left' => $player['has_left'] ?? false,

@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\GameLogic\DifficultyConfig;
 use App\GameLogic\RoleAssignment;
+use App\Support\AvatarCatalog;
 use Illuminate\Support\Str;
 
 class GameService
@@ -41,6 +42,7 @@ class GameService
             fn (array $player) => [
                 'player_uuid' => $player['player_uuid'],
                 'name' => $player['name'],
+                'avatar' => AvatarCatalog::normalize($player['avatar'] ?? null),
                 'is_alive' => true,
                 'role' => $roles[$player['player_uuid']],
                 'is_connected' => true,
